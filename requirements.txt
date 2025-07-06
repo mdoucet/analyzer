@@ -1,6 +1,6 @@
 configparser
 numpy
 matplotlib
-refl1d>=1.0.0
+refl1d==1.0.0a26
 pytest
 pytest-cov
