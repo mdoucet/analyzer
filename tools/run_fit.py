@@ -52,9 +52,9 @@ def execute_fit(model_name, data_file, output_dir):
 
     fit(
         problem,
-        method="amoeba",
-        samples=1000,
-        burn=500,
+        method="dream",
+        samples=10000,
+        burn=5000,
         alpha=1,
         verbose=1,
         export=f"{output_dir}",
@@ -98,8 +98,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    data_file_template = config.get("paths", "combined_data_template")
     data_file = os.path.join(
-        args.data_dir, f"REFL_{args.set_id}_combined_data_auto.txt"
+        args.data_dir, data_file_template.format(set_id=args.set_id)
     )
     output_dir = os.path.join(args.results_dir, f"{args.set_id}_{args.model_name}")
 
