@@ -1,0 +1,4 @@
+configparser
+numpy
+matplotlib
+refl1d>=1.0.0
