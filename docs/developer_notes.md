@@ -29,3 +29,7 @@ The file naming convention for combined data files has been abstracted to a temp
 ## Testing
 
 The test suite has been updated to use pytest consistently. Tests now use standard `assert` statements and pytest fixtures for setup and teardown. A test for `create_temporary_model.py` has been added, and the test for `create_model_script.py` has been fixed to ensure it runs correctly and allows for coverage reporting.
+
+## Continuous Integration
+
+A GitHub Actions workflow has been added to automatically run the test suite on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/python-test.yml`.

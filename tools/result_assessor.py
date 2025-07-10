@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 import configparser
 
-from .utils import summary_plots
+from utils import summary_plots
 
 
 def assess_result(directory, set_id, model_name, reports_dir):
