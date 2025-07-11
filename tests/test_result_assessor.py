@@ -4,7 +4,7 @@ import tempfile
 import shutil
 import numpy as np
 from unittest.mock import patch, MagicMock
-from tools import result_assessor
+from analyzer_tools import result_assessor
 
 class TestResultAssessor:
     def setup_method(self):
@@ -16,7 +16,7 @@ class TestResultAssessor:
         shutil.rmtree(self.test_dir)
 
     @patch('matplotlib.pyplot.savefig')
-    @patch('tools.utils.summary_plots.plot_sld')
+    @patch('analyzer_tools.utils.summary_plots.plot_sld')
     def test_assess_result_creates_files_and_report(self, mock_plot_sld, mock_savefig):
         # Arrange
         set_id = '123'

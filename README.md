@@ -25,6 +25,9 @@ Neutron reflectometry is a powerful technique for studying the structure of thin
     ```
 2.  Install the required packages:
     ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip
     pip install -r requirements.txt
     ```
 
@@ -104,7 +107,7 @@ Here are some examples of how you can use the Gemini CLI:
     > please run the partial data assessment tool for 218292
 
 *   **Run a fit:**
-    > run the fit for 218292
+    > run the fit for 218292 with model cu_thf
 
 *   **Ask a question:**
     > what is the difference between `partial_data_assessor.py` and `result_assessor.py`?

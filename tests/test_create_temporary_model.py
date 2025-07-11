@@ -23,7 +23,7 @@ def test_create_temporary_model(cleanup_files):
     subprocess.run(
         [
             "python3",
-            "tools/create_temporary_model.py",
+            "analyzer_tools/create_temporary_model.py",
             base_model,
             new_model,
             "--adjust",

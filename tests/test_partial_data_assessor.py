@@ -3,7 +3,7 @@ import os
 import tempfile
 import shutil
 from unittest.mock import patch
-from tools import partial_data_assessor
+from analyzer_tools import partial_data_assessor
 
 class TestPartialDataAssessor:
     def setup_method(self):

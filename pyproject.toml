@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "analyzer-tools"
+version = "0.1.0"
+description = "Neutron reflectometry data analysis tools"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Neutron Reflectometry Team"},
+]
+keywords = ["neutron", "reflectometry", "analysis", "fitting"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "refl1d==1.0.0b0",
+    "configparser",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "flake8",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/analyzer"
+Repository = "https://github.com/your-org/analyzer"
+
+[project.scripts]
+run-fit = "analyzer_tools.cli:run_fit_cli"
+assess-partial = "analyzer_tools.cli:assess_partial_cli"
+create-model = "analyzer_tools.cli:create_model_cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["analyzer_tools*"]
+
+[tool.setuptools.package-data]
+"analyzer_tools" = ["*.ini"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]

@@ -2,7 +2,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from tools.create_model_script import create_fit_script
+from analyzer_tools.create_model_script import create_fit_script
 
 class TestCreateModelScript:
     def setup_method(self):
