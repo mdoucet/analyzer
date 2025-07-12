@@ -187,7 +187,7 @@ Models are Python files in the `models/` directory. Each must contain a `create_
 # Copy existing model as template
 cp models/cu_thf.py models/my_model.py
 
-# Or use the model creator
+** Create a model file that can be loaded in the refl1d interface **
 python analyzer_tools/create_model_script.py my_model data.txt
 ```
 
