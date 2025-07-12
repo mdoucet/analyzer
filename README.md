@@ -1,5 +1,8 @@
 # Neutron Reflectometry Analysis Tools
 
+[![Python Tests](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml/badge.svg)](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml)
+[![codecov](https://codecov.io/gh/mdoucet/analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/mdoucet/analyzer)
+
 A comprehensive suite of tools for analyzing neutron reflectometry data. Designed for scientists who need to assess data quality, fit experimental data to models, and generate detailed analysis reports.
 
 ## 🚀 Quick Start

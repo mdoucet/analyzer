@@ -131,6 +131,56 @@ Fixed import issues and Python 3.9 compatibility:
 
 A GitHub Actions workflow has been added to automatically run the test suite on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/python-test.yml`
 
+## Code Coverage Integration (July 12, 2025)
+
+Added code coverage reporting to the CI/CD pipeline and repository:
+
+### Changes Made:
+
+1. **Enhanced GitHub Actions Workflow** (`.github/workflows/python-test.yml`):
+   - Added `pytest-cov` installation
+   - Modified test command to include coverage reporting: `pytest --cov=analyzer_tools --cov-report=xml --cov-report=html --cov-report=term-missing`
+   - Added Codecov integration with `codecov/codecov-action@v3`
+   - Uploads coverage reports to Codecov automatically on every push/PR
+
+2. **Added Coverage Configuration** (`.coveragerc`):
+   - Configured to track `analyzer_tools` package
+   - Excludes test files, cache, and hidden files from coverage
+   - Generates both XML (for Codecov) and HTML (for local viewing) reports
+   - Excludes common non-testable lines (like `if __name__ == '__main__':`)
+
+3. **Updated README with Badges**:
+   - Added GitHub Actions status badge
+   - Added Codecov coverage badge
+   - Badges provide quick visual status of build health and test coverage
+
+### Current Coverage Status:
+- **Baseline Coverage**: 20%
+- **Well-tested modules**: `create_temporary_model.py` (91%), `partial_data_assessor.py` (85%)
+- **Areas needing tests**: CLI interfaces, welcome module, config utilities
+
+### Usage:
+
+```bash
+# Run tests with coverage locally
+pytest --cov=analyzer_tools --cov-report=term-missing
+
+# Generate HTML coverage report
+pytest --cov=analyzer_tools --cov-report=html
+# View report: open htmlcov/index.html
+
+# Generate XML for CI
+pytest --cov=analyzer_tools --cov-report=xml
+```
+
+### Benefits:
+- **Quality Assurance**: Tracks which code is tested
+- **CI Integration**: Automatic coverage reporting on every commit
+- **Progress Tracking**: Coverage badges show testing progress over time
+- **Identifies Gaps**: Highlights untested code that may need attention
+
+The coverage system helps maintain code quality and ensures new features include appropriate tests.
+
 ## Tool Discovery System (July 12, 2025)
 
 ### New User-Friendly Features

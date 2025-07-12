@@ -19,9 +19,9 @@ def adjust_model_parameters(model_content, adjustments):
     for key, value in adjustments.items():
         layer, parameter = key.split(".")
         pattern = re.compile(
-            f'(sample\["{layer}"\]\\.{parameter}\\.range\\()\\s*\\d+\\.?\\d*\\s*,\\s*\\d+\\.?\\d*\\s*(\\))'
+            rf'(sample\["{layer}"\]\.{parameter}\.range\()\s*\d+\.?\d*\s*,\s*\d+\.?\d*\s*(\))'
         )
-        replacement = f"\\g<1>{value[0]}, {value[1]}\\g<2>"
+        replacement = rf"\g<1>{value[0]}, {value[1]}\g<2>"
         model_content = pattern.sub(replacement, model_content)
     return model_content
 
