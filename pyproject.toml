@@ -62,6 +62,15 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
+[tool.coverage.run]
+source = ["analyzer_tools"]
+omit = ["*/tests/*", "*/test_*"]
+
+[tool.coverage.report]
+fail_under = 0
+show_missing = true
+skip_covered = false
+
 [tool.black]
 line-length = 88
 target-version = ['py39']

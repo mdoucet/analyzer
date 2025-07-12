@@ -15,6 +15,20 @@ for both GitHub Copilot and GEMINI. This project is still in the prototype phase
 
 **New to this repository?** Start here:
 
+The easiest way to get started and use this project, follow these steps:
+
+1. Install VS Code
+2. In VS Code, enable GitHub Copilot by logging in to your GitHub account
+3. Follow the installation steps below
+4. Make sure your data is available on the computer you are working on
+5. Modify the `config.ini` file and make sure the `combined_data_dir` and `partial_data_dir` point to your data (they can be in the same directory).
+6. Make sure the `results_dir` in the `config.ini` file is somewhere you like
+7. If you are from another facility or you data files have a different naming convention (and if you are brave), you can change the `combined_data_template` in `config.ini` to define how your data files are named.
+
+
+
+**From the command line**
+
 ```python
 # In Python or Jupyter
 from analyzer_tools.welcome import welcome
@@ -189,7 +203,6 @@ Models are Python files in the `models/` directory. Each must contain a `create_
 
 **Available models:**
 - `cu_thf`: Copper thin film model
-- `cu_thf_temp`: Temporary copper model with adjusted parameters
 
 **Create new models:**
 ```bash
@@ -228,3 +241,12 @@ from analyzer_tools.registry import get_all_tools, get_workflows, print_tool_ove
 2. Update the tool registry when adding new tools
 3. Run tests: `pytest`
 4. Update documentation
+
+
+## 🚀 Next Steps
+
+- Add more flexibility for modifying existing models
+- Add co-refinement
+- Add nested sampling analysis to compare models
+- Add the ability to call time-resolved reduction
+- Add the ability to fit and report on time-resolved data

@@ -22,6 +22,9 @@ class Config:
         self._config = configparser.ConfigParser()
         if os.path.exists(self.config_file):
             self._config.read(self.config_file)
+            # If file exists but has no paths section, add defaults
+            if not self._config.has_section('paths'):
+                self._set_defaults()
         else:
             # Provide defaults if config file doesn't exist
             self._set_defaults()

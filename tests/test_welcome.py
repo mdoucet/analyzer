@@ -80,6 +80,55 @@ class TestShowAvailableData:
                 
                 assert "Directory not found" in combined_output
 
+    @patch('analyzer_tools.config_utils.get_config')
+    @patch('builtins.print')
+    def test_show_available_data_with_files(self, mock_print, mock_get_config):
+        """Test showing available data when files exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create mock config
+            mock_config = MagicMock()
+            mock_config.get_combined_data_dir.return_value = temp_dir
+            mock_config.get_partial_data_dir.return_value = temp_dir
+            mock_get_config.return_value = mock_config
+            
+            # Create test data files
+            test_files = [
+                'REFL_123_combined_data_auto.txt',
+                'REFL_456_combined_data_auto.txt',
+                'REFL_123_1_001_partial.txt',
+                'REFL_123_2_002_partial.txt'
+            ]
+            
+            for filename in test_files:
+                filepath = os.path.join(temp_dir, filename)
+                with open(filepath, 'w') as f:
+                    f.write("# Test data\n")
+            
+            # Test the function
+            show_available_data()
+            
+            # Check that it printed information about available data
+            assert mock_print.call_count > 0
+            printed_text = ' '.join([str(call.args[0]) for call in mock_print.call_args_list])
+            assert 'Combined' in printed_text or 'combined' in printed_text
+
+    @patch('analyzer_tools.config_utils.get_config')
+    @patch('builtins.print') 
+    def test_show_available_data_no_files(self, mock_print, mock_get_config):
+        """Test showing available data when no files exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create mock config pointing to empty directory
+            mock_config = MagicMock()
+            mock_config.get_combined_data_dir.return_value = temp_dir
+            mock_config.get_partial_data_dir.return_value = temp_dir
+            mock_get_config.return_value = mock_config
+            
+            # Test with no data files
+            show_available_data()
+            
+            # Should still print something (even if no data found)
+            assert mock_print.call_count > 0
+
 
 class TestQuickStart:
     """Test the quick_start function."""
@@ -119,6 +168,16 @@ class TestQuickStart:
         assert "COMBINED DATA" in combined_output.upper()
         assert "partial_data_assessor.py" in combined_output
         assert "run_fit.py" in combined_output
+    
+    @patch('builtins.print')
+    def test_quick_start_prints_instructions(self, mock_print):
+        """Test that quick_start prints instructions."""
+        quick_start()
+        
+        # Should print instructions
+        assert mock_print.call_count > 0
+        printed_text = ' '.join([str(call.args[0]) for call in mock_print.call_args_list])
+        assert 'quick' in printed_text.lower() or 'start' in printed_text.lower()
 
 
 class TestHelpMeChoose:
@@ -141,3 +200,15 @@ class TestHelpMeChoose:
         # Should provide guidance
         assert "quality of partial data" in combined_output.lower()
         assert "fit reflectivity data" in combined_output.lower() or "reflectivity data" in combined_output.lower()
+    
+    @patch('builtins.print')
+    def test_help_me_choose_prints_guidance(self, mock_print):
+        """Test that help_me_choose prints guidance."""
+        help_me_choose()
+        
+        # Should print guidance
+        assert mock_print.call_count > 0
+        # Check that something was printed - just verify the call happened
+        if mock_print.call_args_list:
+            printed_calls = [str(call) for call in mock_print.call_args_list]
+            assert len(printed_calls) > 0
