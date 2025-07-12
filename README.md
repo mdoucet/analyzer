@@ -2,6 +2,7 @@
 
 [![Python Tests](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml/badge.svg)](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml)
 [![codecov](https://codecov.io/gh/mdoucet/analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/mdoucet/analyzer)
+[![DOI](https://zenodo.org/badge/1013265177.svg)](https://doi.org/10.5281/zenodo.15870378)
 
 This repository is a demonstration project to show how LLMs can be used to help scattering facility users 
 analyze data. It was created out of the need to analyze a large number of data sets for a real experiment.
