@@ -42,7 +42,7 @@ problem = FitProblem(experiment)
 def main():
     parser = argparse.ArgumentParser(description='Create a model script that can be loaded in refl1d.')
     parser.add_argument('model_name', type=str, help='Name of the model module in the @models directory (e.g., cu_thf).')
-    parser.add_argument('data_file', type=str, help='Path to the data file in @data/combined.')
+    parser.add_argument('data_file', type=str, help='Path to the data file (or just filename if in configured combined data directory).')
     args = parser.parse_args()
 
     create_fit_script(args.model_name, args.data_file)

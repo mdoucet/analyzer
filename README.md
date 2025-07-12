@@ -1,35 +1,76 @@
-# Neutron Reflectometry Analysis
+# Neutron Reflectometry Analysis Tools
 
-This package provides a suite of tools for analyzing neutron reflectometry data. It is designed to help scientists fit experimental data to theoretical models and assess the quality of the data.
+A comprehensive suite of tools for analyzing neutron reflectometry data. Designed for scientists who need to assess data quality, fit experimental data to models, and generate detailed analysis reports.
 
-## Overview
+## 🚀 Quick Start
 
-Neutron reflectometry is a powerful technique for studying the structure of thin films and surfaces. This package provides the tools to:
+**New to this repository?** Start here:
 
-*   **Assess the quality of partial data sets:** Before combining partial reflectivity curves, it's important to ensure they are consistent with each other. The `partial_data_assessor.py` tool helps with this by analyzing the overlap regions between partial data sets.
-*   **Fit reflectivity data to models:** The `run_fit.py` tool allows you to fit your experimental data to a variety of theoretical models. The models are defined in the `models` directory.
-*   **Generate reports:** The tools automatically generate markdown reports with plots and analysis results.
+```python
+# In Python or Jupyter
+from analyzer_tools.welcome import welcome
+welcome()
 
-## Getting Started
+# Or from command line
+python analyzer_tools/cli.py
+```
 
-### Prerequisites
+This will show you all available tools and help you get started!
 
-*   Python 3
-*   See `requirements.txt` for a list of required Python packages.
+## 📊 What This Package Does
 
-### Installation
+- **🔍 Data Quality Assessment**: Check partial data consistency before combining
+- **📈 Model Fitting**: Fit reflectivity data to theoretical models 
+- **📋 Automated Reporting**: Generate comprehensive analysis reports
+- **🛠️ Model Management**: Create and modify fitting models
+- **📈 Result Analysis**: Evaluate fit quality and parameter uncertainties
 
-1.  Clone this repository:
-    ```bash
-    git clone <repository-url>
-    ```
-2.  Install the required packages:
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    ```
+## 🏗️ Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd analyzer
+   ```
+
+2. **Set up Python environment:**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+3. **Install the package (optional):**
+   ```bash
+   pip install -e .  # Installs CLI commands: run-fit, assess-partial, create-model
+   ```
+
+## 🔧 Available Tools
+
+| Tool | Purpose | Example Usage |
+|------|---------|---------------|
+| **Partial Data Assessor** | Check quality of partial data | `python analyzer_tools/partial_data_assessor.py 218281` |
+| **Fit Runner** | Fit data to models | `python analyzer_tools/run_fit.py 218281 cu_thf` |
+| **Result Assessor** | Evaluate fit quality | `python analyzer_tools/result_assessor.py 218281 cu_thf` |
+| **Model Creator** | Generate fit scripts | `python analyzer_tools/create_model_script.py cu_thf data.txt` |
+| **Temporary Models** | Adjust model parameters | `python analyzer_tools/create_temporary_model.py cu_thf cu_thf_temp --adjust Cu thickness 500,800` |
+
+### 💡 Get Help Anytime
+
+```bash
+# List all tools
+python analyzer_tools/cli.py --list-tools
+
+# Get help for specific tool  
+python analyzer_tools/cli.py --help-tool partial
+
+# Show analysis workflows
+python analyzer_tools/cli.py --workflows
+
+# Interactive tool selection
+python -c "from analyzer_tools.welcome import help_me_choose; help_me_choose()"
+```
 
 ## Configuration
 
@@ -48,66 +89,133 @@ reports_dir = reports
 ```
 You can edit this file to change the default locations for your data and results.
 
-## Data files
-This package is currently geared towards using automatically reduced data from the
-Liquids Reflectometer at SNS. By default, it will assume that fully reduced reflectivity
-data are stored in files named `REFL_<set_ID>_combined_data_auto.txt`, where `set_ID`
-is the first run number of a set.
+## 📁 Data Organization
 
-## Partial data files
-These are the reduced data files before they are combined into the combined reduced file.
-This is useful to assess data quality and see if the normalization was done properly.
-It can also be used to fit data with an angle offset.
+Data locations are configured in `config.ini`. Default structure:
 
-- The file names are `REFL_<set_ID>_<part_ID>_<run_ID>_partial.txt`
-- `part_ID` usually runs from 1 to 3. All the parts with the same `set_ID` belong together.
-- The `set_ID` is usually the first `run_ID` of the set.
+### Combined Data
+- **Default Location**: `data/combined/`
+- **Configurable**: Set `combined_data_dir` in config.ini
+- **Template**: Configurable via `combined_data_template` (default: `REFL_{set_id}_combined_data_auto.txt`)
+- **Use**: Final reduced data ready for fitting
 
+### Partial Data  
+- **Default Location**: `data/partial/`
+- **Configurable**: Set `partial_data_dir` in config.ini
+- **Format**: `REFL_<set_ID>_<part_ID>_<run_ID>_partial.txt`
+- **Use**: Individual data parts before combining (for quality assessment)
+- **Structure**: Usually 3 parts per set, all with same `set_ID` belong together
 
+### File Format
+All data files contain 4 columns: Q, R, dR, dQ
+- **Q**: Momentum transfer (1/Å)
+- **R**: Reflectivity 
+- **dR**: Reflectivity uncertainty
+- **dQ**: Q resolution
 
-## Usage
+## 🔄 Analysis Workflows
 
-### Assessing Partial Data
-
-To assess the quality of a set of partial data files, use the `partial_data_assessor.py` tool. You need to provide the `set_id` of the data you want to analyze.
-
+### 1. Partial Data Quality Check
 ```bash
-python3 tools/partial_data_assessor.py <set_id>
+# Assess overlap quality between data parts
+python analyzer_tools/partial_data_assessor.py 218281
+
+# Check the report
+open reports/report_218281.md
 ```
 
-This will generate a report in the `reports` directory with a plot of the reflectivity curves and a metric for how well they match in the overlap regions.
-
-### Running a Fit
-
-To fit a reflectivity curve to a model, use the `run_fit.py` tool. You need to provide the `set_id` of the data and the name of the model you want to use.
-
+### 2. Standard Fitting Workflow
 ```bash
-python3 tools/run_fit.py <set_id> <model_name>
+# 1. Run the fit
+python analyzer_tools/run_fit.py 218281 cu_thf
+
+# 2. Assess results
+python analyzer_tools/result_assessor.py 218281 cu_thf
+
+# 3. Check reports directory for results
+ls reports/
 ```
 
-This will perform the fit and generate a report in the `reports` directory with plots of the fit and the resulting scattering length density (SLD) profile.
+### 3. Parameter Exploration
+```bash
+# 1. Create model variant
+python analyzer_tools/create_temporary_model.py cu_thf cu_thf_wide --adjust Cu thickness 300,1000
 
-## Models
+# 2. Test with new parameters
+python analyzer_tools/run_fit.py 218281 cu_thf_wide
 
-The theoretical models are defined as Python modules in the `models` directory. You can create your own models by adding a new Python file to this directory. Each model file must contain a `create_fit_experiment` function that returns a `refl1d.experiment.Experiment` object.
+# 3. Compare results
+python analyzer_tools/result_assessor.py 218281 cu_thf_wide
+```
 
-## Working with the Gemini CLI
+## ⚙️ Configuration
 
-You can also use the Gemini CLI to interact with this package. The Gemini CLI can help you with:
+Edit `config.ini` to customize paths and settings:
 
-*   Answering questions about reflectometry data analysis.
-*   Writing new analysis code and tools.
-*   Running the existing tools to analyze data.
+```ini
+[paths]
+# Fit results storage
+results_dir = /tmp/fits                    
 
-### Examples
+# Data directories (customize for your setup)
+combined_data_dir = data/combined          # Final reduced data
+partial_data_dir = data/partial           # Individual data parts  
 
-Here are some examples of how you can use the Gemini CLI:
+# Output directories
+reports_dir = reports                     # Analysis reports
 
-*   **Assess partial data:**
-    > please run the partial data assessment tool for 218292
+# File naming template for combined data
+combined_data_template = REFL_{set_id}_combined_data_auto.txt
+```
 
-*   **Run a fit:**
-    > run the fit for 218292 with model cu_thf
+**🔧 Customizing Data Locations:**
+- Set `combined_data_dir` to point to your reduced data location
+- Set `partial_data_dir` to point to your partial data location  
+- Modify `combined_data_template` if your files use different naming
+- All tools automatically use these configured paths
 
-*   **Ask a question:**
-    > what is the difference between `partial_data_assessor.py` and `result_assessor.py`?
+## 🏗️ Models
+
+Models are Python files in the `models/` directory. Each must contain a `create_fit_experiment` function returning a `refl1d.experiment.Experiment` object.
+
+**Available models:**
+- `cu_thf`: Copper thin film model
+- `cu_thf_temp`: Temporary copper model with adjusted parameters
+
+**Create new models:**
+```bash
+# Copy existing model as template
+cp models/cu_thf.py models/my_model.py
+
+# Or use the model creator
+python analyzer_tools/create_model_script.py my_model data.txt
+```
+
+## 🤖 AI Assistant Integration  
+
+This repository is designed to work seamlessly with AI assistants. The tool registry system allows AI assistants to:
+
+- Automatically discover available tools
+- Understand tool capabilities and usage
+- Guide users through appropriate workflows
+- Provide contextual help and examples
+
+**For AI assistants:** Import the registry to access tool information:
+```python
+from analyzer_tools.registry import get_all_tools, get_workflows, print_tool_overview
+```
+
+## 🆘 Getting Help
+
+- **Tool overview**: `python analyzer_tools/cli.py`
+- **Specific tool help**: `python analyzer_tools/cli.py --help-tool <tool_name>`
+- **Workflows**: `python analyzer_tools/cli.py --workflows`
+- **Interactive selection**: `python -c "from analyzer_tools.welcome import help_me_choose; help_me_choose()"`
+- **Developer notes**: See `docs/developer_notes.md`
+
+## 🤝 Contributing
+
+1. Follow the test-driven development approach outlined in `docs/developer_notes.md`
+2. Update the tool registry when adding new tools
+3. Run tests: `pytest`
+4. Update documentation

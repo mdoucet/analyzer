@@ -59,6 +59,59 @@ python analyzer_tools/run_fit.py 218386 cu_thf
 
 The file naming convention for combined data files has been abstracted to a template in `config.ini`. The `run_fit.py` script now uses the `combined_data_template` from the config file to determine the data file name.
 
+### Configuration System Updates (July 12, 2025)
+
+Fixed hard-coded path assumptions in the tool discovery system:
+
+#### Problem Identified:
+- New tool registry, welcome module, and documentation had hard-coded paths (`data/combined`, `data/partial`)
+- This contradicted the configurable nature of the repository specified in `config.ini`
+- Users with different data organization couldn't benefit from the discovery tools
+
+#### Solution Implemented:
+
+1. **Created `analyzer_tools/config_utils.py`**:
+   - Centralized configuration management with `Config` class
+   - Provides easy access to all configurable paths
+   - Includes fallback defaults if config.ini doesn't exist
+   - Thread-safe global config instance via `get_config()`
+
+2. **Updated Tool Registry** (`registry.py`):
+   - Now reads actual configured paths from `config.ini`
+   - Shows real data locations and file templates in overview
+   - Handles both package and standalone execution modes
+
+3. **Updated Welcome Module** (`welcome.py`):
+   - `show_available_data()` now uses configured paths
+   - Displays actual data locations and templates
+   - Gracefully handles missing directories
+
+4. **Enhanced Documentation**:
+   - README.md now emphasizes configurable nature
+   - Shows how to customize data locations
+   - Explains that all tools automatically use configured paths
+
+#### Usage:
+
+```python
+# For tools and scripts
+from analyzer_tools.config_utils import get_config
+config = get_config()
+combined_dir = config.get_combined_data_dir()
+
+# For display/overview functions
+from analyzer_tools.config_utils import get_data_organization_info
+info = get_data_organization_info()
+```
+
+#### Verification:
+- All discovery tools now properly reflect user's actual data organization
+- Configuration changes are immediately reflected in tool overviews
+- System works with any custom data directory structure
+- Maintains backward compatibility with existing tools
+
+This ensures the repository truly adapts to the user's data organization rather than assuming fixed paths.
+
 ## Testing
 
 The test suite has been updated to use pytest consistently. Tests now use standard `assert` statements and pytest fixtures for setup and teardown. A test for `create_temporary_model.py` has been added, and the test for `create_model_script.py` has been fixed to ensure it runs correctly and allows for coverage reporting.
@@ -77,3 +130,64 @@ Fixed import issues and Python 3.9 compatibility:
 ## Continuous Integration
 
 A GitHub Actions workflow has been added to automatically run the test suite on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/python-test.yml`
+
+## Tool Discovery System (July 12, 2025)
+
+### New User-Friendly Features
+
+Added a comprehensive tool discovery system to make the repository accessible to new users and AI assistants:
+
+#### Key Components:
+
+1. **Tool Registry (`analyzer_tools/registry.py`)**:
+   - Centralized catalog of all analysis tools with descriptions, usage examples, and data type requirements
+   - Defines analysis workflows with step-by-step instructions
+   - Provides programmatic access to tool information for AI assistants
+   - Can be executed standalone to show tool overview
+
+2. **Enhanced CLI (`analyzer_tools/cli.py`)**:
+   - `--list-tools`: Shows comprehensive tool overview
+   - `--help-tool <name>`: Detailed help for specific tools
+   - `--workflows`: Displays analysis workflows
+   - Handles both module and standalone execution
+
+3. **Welcome Module (`analyzer_tools/welcome.py`)**:
+   - `welcome()`: Displays welcome message and tool overview
+   - `show_available_data()`: Shows what data is available for analysis
+   - `quick_start()`: Provides quick start guides for different data types
+   - `help_me_choose()`: Interactive tool selection helper
+
+4. **Updated README.md**:
+   - User-friendly quick start section
+   - Comprehensive tool table with examples
+   - Analysis workflow examples
+   - AI assistant integration notes
+
+#### Usage Examples:
+
+```python
+# For new users
+from analyzer_tools.welcome import welcome
+welcome()
+
+# For AI assistants  
+from analyzer_tools.registry import get_all_tools, get_workflows
+tools = get_all_tools()
+workflows = get_workflows()
+```
+
+```bash
+# Command line discovery
+python -m analyzer_tools.cli --list-tools
+python -m analyzer_tools.cli --help-tool partial
+python -m analyzer_tools.cli --workflows
+```
+
+#### Benefits:
+
+- **User Onboarding**: New users can quickly discover available tools and workflows
+- **AI Assistant Integration**: Provides structured tool information for AI assistants
+- **Self-Documenting**: Repository becomes self-documenting with built-in help system
+- **Maintainable**: Adding new tools only requires updating the registry
+
+This system ensures both human users and AI assistants can easily discover and understand the available analysis capabilities.
