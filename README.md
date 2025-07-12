@@ -3,7 +3,13 @@
 [![Python Tests](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml/badge.svg)](https://github.com/mdoucet/analyzer/actions/workflows/python-test.yml)
 [![codecov](https://codecov.io/gh/mdoucet/analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/mdoucet/analyzer)
 
-A comprehensive suite of tools for analyzing neutron reflectometry data. Designed for scientists who need to assess data quality, fit experimental data to models, and generate detailed analysis reports.
+This repository is a demonstration project to show how LLMs can be used to help scattering facility users 
+analyze data. It was created out of the need to analyze a large number of data sets for a real experiment.
+It is based on the idea that a list of properly named, well defined, and well documented tools can easily be
+interpreted by an LLM, which can then call them according to a user's input. This version has LLM instructions
+for both GitHub Copilot and GEMINI. This project is still in the prototype phase. Please feel free to contribute 
+your own tools.
+
 
 ## 🚀 Quick Start
 
