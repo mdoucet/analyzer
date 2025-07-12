@@ -7,8 +7,7 @@ This repository is a demonstration project to show how LLMs can be used to help 
 analyze data. It was created out of the need to analyze a large number of data sets for a real experiment.
 It is based on the idea that a list of properly named, well defined, and well documented tools can easily be
 interpreted by an LLM, which can then call them according to a user's input. This version has LLM instructions
-for both GitHub Copilot and GEMINI. This project is still in the prototype phase. Please feel free to contribute 
-your own tools.
+for both GitHub Copilot and GEMINI. This project is still in the prototype phase. Much remains to be done in terms of flexibility and reporting. Please feel free to contribute your own tools.
 
 
 ## 🚀 Quick Start
