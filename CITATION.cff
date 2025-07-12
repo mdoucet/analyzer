@@ -4,6 +4,7 @@ abstract: "This repository contains tools for analyzing data from the SNS BL4B b
 authors:
 - family-names: "Doucet"
   given-names: "Mathieu"
+  affiliation: "Oak Ridge National Laboratory"
   orcid: "https://orcid.org/0000-0002-5560-6478"
 title: "LLM-enabled tools for SNS BL4B data analysis"
 version: 0.1.0
