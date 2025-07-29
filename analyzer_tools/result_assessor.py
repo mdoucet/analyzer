@@ -217,9 +217,11 @@ def assess_result(directory, set_id, model_name, reports_dir):
             # If the loop never breaks, set start_idx to 0 (or handle as needed)
             start_idx = 0
 
-        _z = z[i]-z+z_offset
-        plt.plot(_z[:i], best[:i], markersize=4, label=label, linewidth=linewidth)
-        plt.fill_between(_z[:i], low[:i], high[:i], alpha=0.2, color=plt.gca().lines[-1].get_color())
+        # Calculate the shifted z values for plotting, aligning the profile to the offset.
+        # This shifts the z array so that z[i] becomes the new zero (plus z_offset).
+        shifted_z = z - z[i] + z_offset
+        plt.plot(shifted_z[:i], best[:i], markersize=4, label=label, linewidth=linewidth)
+        plt.fill_between(shifted_z[:i], low[:i], high[:i], alpha=0.2, color=plt.gca().lines[-1].get_color())
         ax.legend()
 
         # Write SLD uncertainty bands to a text file
