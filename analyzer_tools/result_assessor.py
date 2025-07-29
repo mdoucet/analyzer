@@ -50,11 +50,11 @@ def load_expt_json(expt_json_file):
 
 def get_sld_contour(problem, state, cl=90, npoints=200, trim=1000, portion=.3, index=1, align='auto'):
     points, _logp = state.sample(portion=portion)
-    points = points[-trim:-1]
+    points = points[-trim:]
     original = problem.getp()
     _profiles, slabs, Q, residuals = uncertainty.calc_errors(problem, points)
     problem.setp(original)
-    
+
     profiles = uncertainty.align_profiles(_profiles, slabs, align)
 
     # Group 1 is rho
