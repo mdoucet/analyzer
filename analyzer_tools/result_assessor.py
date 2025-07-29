@@ -208,9 +208,14 @@ def assess_result(directory, set_id, model_name, reports_dir):
         z, best, low, high = get_sld_contour(problem, state, cl=90, align=-1)[0]
 
         # Find the starting point of the distribution
+        start_idx = 0
         for i in range(len(best)-1, 0, -1):
             if np.fabs(best[i] - best[i-1]) > 0.001:
+                start_idx = i
                 break
+        else:
+            # If the loop never breaks, set start_idx to 0 (or handle as needed)
+            start_idx = 0
 
         _z = z[i]-z+z_offset
         plt.plot(_z[:i], best[:i], markersize=4, label=label, linewidth=linewidth)
