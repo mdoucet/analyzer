@@ -216,6 +216,15 @@ def assess_result(directory, set_id, model_name, reports_dir):
         plt.plot(_z[:i], best[:i], markersize=4, label=label, linewidth=linewidth)
         plt.fill_between(_z[:i], low[:i], high[:i], alpha=0.2, color=plt.gca().lines[-1].get_color())
         ax.legend()
+
+        # Write SLD uncertainty bands to a text file
+        sld_txt_filename = f"sld_uncertainty_{set_id}_{model_name}.txt"
+        sld_txt_path = os.path.join(reports_dir, sld_txt_filename)
+        with open(sld_txt_path, "w") as f:
+            f.write("# z best low high\n")
+            for zi, bi, lo, hi in zip(_z[:i], best[:i], low[:i], high[:i]):
+                f.write(f"{zi:.6f} {bi:.6f} {lo:.6f} {hi:.6f}\n")
+        print(f"SLD uncertainty bands saved to {sld_txt_path}")
     except Exception as e:
         print(f"Could not plot SLD uncertainty band: {e}")
 
