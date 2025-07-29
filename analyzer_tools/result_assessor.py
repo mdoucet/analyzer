@@ -9,7 +9,11 @@ import re
 import json
 from datetime import datetime
 import configparser
+from refl1d import uncertainty
+from bumps import serialize
+from refl1d.names import FitProblem
 
+from bumps import dream
 # Add project root to path to allow importing from other modules
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
@@ -21,6 +25,51 @@ except ImportError:
     # Fallback for standalone execution
     from analyzer_tools.utils import summary_plots
 
+def load_expt_json(expt_json_file):
+    """
+    Load the experiment JSON file and return the data.
+    Parameters
+    ----------
+    expt_json_file : str
+        Path to the experiment JSON file.
+    Returns
+    -------
+    expt
+        Experiment object.
+    """
+    if not os.path.exists(expt_json_file):
+        raise FileNotFoundError(f"Experiment JSON file not found: {expt_json_file}")
+    
+    with open(expt_json_file, 'r') as input_file:
+        serialized = input_file.read()
+        serialized_dict = json.loads(serialized)
+        expt = serialize.deserialize(serialized_dict, migration=True)
+    return expt
+
+
+
+def get_sld_contour(problem, state, cl=90, npoints=200, trim=1000, portion=.3, index=1, align='auto'):
+    points, _logp = state.sample(portion=portion)
+    points = points[-trim:-1]
+    original = problem.getp()
+    _profiles, slabs, Q, residuals = uncertainty.calc_errors(problem, points)
+    problem.setp(original)
+    
+    profiles = uncertainty.align_profiles(_profiles, slabs, align)
+
+    # Group 1 is rho
+    # Group 2 is irho
+    # Group 3 is rhoM
+    contours = []
+    for model, group in profiles.items():
+        ## Find limits of all profiles
+        z = np.hstack([line[0] for line in group])
+        zp = np.linspace(np.min(z), np.max(z), npoints)
+
+        # Columns are z, best, low, high
+        data, cols = uncertainty._build_profile_matrix(group, index, zp, [cl])
+        contours.append(data)
+    return contours
 
 def assess_result(directory, set_id, model_name, reports_dir):
     """
@@ -136,7 +185,8 @@ def assess_result(directory, set_id, model_name, reports_dir):
     plt.savefig(image_path, format="svg")
     print(f"Plot saved to {image_path}")
 
-    # Plot the SLD profile
+
+    # Plot the SLD profile with uncertainty bands
     fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
     plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
 
@@ -144,6 +194,30 @@ def assess_result(directory, set_id, model_name, reports_dir):
     summary_plots.plot_sld(profile_file, set_id, show_cl=True, z_offset=0.0)
     plt.xlabel("z ($\\AA$)", fontsize=15)
     plt.ylabel("SLD ($10^{-6}/{\\AA}^2$)", fontsize=15)
+
+    # Add SLD uncertainty band using get_sld_contour
+    expt_json_file = os.path.join(directory, "problem-1-expt.json")
+    label = "SLD best"
+    linewidth = 2
+    z_offset = 0.0
+    try:
+        experiment = load_expt_json(expt_json_file)
+        problem = FitProblem(experiment)
+        model_path = profile_file.replace('-1-profile.dat', '')
+        state = dream.state.load_state(model_path)
+        z, best, low, high = get_sld_contour(problem, state, cl=90, align=-1)[0]
+
+        # Find the starting point of the distribution
+        for i in range(len(best)-1, 0, -1):
+            if np.fabs(best[i] - best[i-1]) > 0.001:
+                break
+
+        _z = z[i]-z+z_offset
+        plt.plot(_z[:i], best[:i], markersize=4, label=label, linewidth=linewidth)
+        plt.fill_between(_z[:i], low[:i], high[:i], alpha=0.2, color=plt.gca().lines[-1].get_color())
+        ax.legend()
+    except Exception as e:
+        print(f"Could not plot SLD uncertainty band: {e}")
 
     image_filename = f"fit_result_{set_id}_{model_name}_profile.svg"
     sld_image_path = os.path.join(reports_dir, image_filename)
