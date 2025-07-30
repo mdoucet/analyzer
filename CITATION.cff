@@ -10,7 +10,7 @@ authors:
   given-names: "Jennifer"
   affiliation: "SLAC"
 title: "LLM-enabled tools for SNS BL4B data analysis"
-version: 0.1.1
+version: 0.1.2
 identifiers:
   - type: doi
     value: 10.5281/zenodo.15870378
