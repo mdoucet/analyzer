@@ -6,8 +6,11 @@ authors:
   given-names: "Mathieu"
   affiliation: "Oak Ridge National Laboratory"
   orcid: "https://orcid.org/0000-0002-5560-6478"
+- family-names: "Urbine"
+  given-names: "Jennifer"
+  affiliation: "SLAC"
 title: "LLM-enabled tools for SNS BL4B data analysis"
-version: 0.1.0
+version: 0.1.1
 identifiers:
   - type: doi
     value: 10.5281/zenodo.15870378
