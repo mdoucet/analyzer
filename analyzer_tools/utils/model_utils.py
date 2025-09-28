@@ -296,14 +296,11 @@ def expt_from_model_file(
     model_path = Path(model_file).absolute()
     model_file = model_path.stem
 
-    # Add project root to path to allow importing from 'models'
-    model_dir = str(model_path.parent.resolve())
-    if model_dir not in sys.path:
-        sys.path.insert(0, model_dir)
-
-
-    model_module = importlib.import_module(model_file)
+    # Dynamically import the model module from the given file path
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(model_file, str(model_path))
+    model_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(model_module)
     create_experiment = model_module.create_fit_experiment
 
-    experiment = create_experiment(q, dq, reflectivity, errors)
-    return experiment
+    return create_experiment(q, dq, reflectivity, errors)
