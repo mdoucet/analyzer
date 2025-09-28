@@ -1,6 +1,9 @@
 import os
 import json
+import sys
 import numpy as np
+import importlib
+from pathlib import Path
 
 import refl1d
 from refl1d.names import QProbe, Parameter, SLD, Slab, Experiment
@@ -261,3 +264,46 @@ def calculate_reflectivity(model_expt_json_file, q, q_resolution=0.025):
     expt = expt_from_json_file(model_expt_json_file, q, q_resolution=q_resolution)
     _, r = expt.reflectivity()
     return r
+
+
+def expt_from_model_file(
+    model_file: str,
+    q: np.ndarray,
+    dq: np.ndarray,
+    reflectivity: np.ndarray = None,
+    errors: np.ndarray = None,
+) -> Experiment:
+    """
+    Load an Experiment from a model file.
+
+    Parameters
+    ----------
+    model_file : str
+        Python file containing a create_fit_experiment(q, dq, data, errors) function
+    q : np.ndarray
+        Q values
+    dq : np.ndarray
+        Q resolution values (1 sigma)
+    reflectivity : np.ndarray
+        Reflectivity values
+    errors : np.ndarray
+        Reflectivity error values
+
+    Returns
+    -------
+        Experiment
+    """
+    model_path = Path(model_file).absolute()
+    model_file = model_path.stem
+
+    # Add project root to path to allow importing from 'models'
+    model_dir = str(model_path.parent.resolve())
+    if model_dir not in sys.path:
+        sys.path.insert(0, model_dir)
+
+
+    model_module = importlib.import_module(model_file)
+    create_experiment = model_module.create_fit_experiment
+
+    experiment = create_experiment(q, dq, reflectivity, errors)
+    return experiment
