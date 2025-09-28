@@ -294,11 +294,17 @@ def expt_from_model_file(
         Experiment
     """
     model_path = Path(model_file).absolute()
-    model_file = model_path.stem
+    # Add .py extension if not present
+    if not model_path.suffix:
+        model_path = model_path.with_suffix('.py')
+    
+    model_name = model_path.stem
 
     # Dynamically import the model module from the given file path
     import importlib.util
-    spec = importlib.util.spec_from_file_location(model_file, str(model_path))
+    spec = importlib.util.spec_from_file_location(model_name, str(model_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module spec from {model_path}")
     model_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(model_module)
     create_experiment = model_module.create_fit_experiment
