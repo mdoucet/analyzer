@@ -142,14 +142,13 @@ class ExperimentDesigner:
 
         # Warn if parameters of interest not found
         if self.parameters_of_interest:
-            missing_params = [
+            if (missing_params := [
                 param
                 for param in self.parameters_of_interest
-                if param not in self.base_params
-            ]
-            if len(missing_params) > 0:
+                if param not in self.all_model_parameters
+            ]):
                 logger.warning(f"Parameters {missing_params} not found in model")
-                logger.info(f"Available parameters: {list(self.base_params.keys())}")
+                logger.info(f"Available parameters: {list(self.all_model_parameters.keys())}")
         return parameters
 
     def prior_entropy(self) -> float:
@@ -185,6 +184,7 @@ class ExperimentDesigner:
         errors: np.ndarray,
         mcmc_steps: int = 1000,
         burn_steps: int = 1000,
+        q_resolution_scale: float = 0.025,
     ) -> Tuple[np.ndarray, List[str]]:
         """
         Perform MCMC analysis using refl1d/bumps.
@@ -195,13 +195,14 @@ class ExperimentDesigner:
             errors: Error bars
             mcmc_steps: Number of MCMC steps
             burn_steps: Number of burn-in steps
+            q_resolution_scale: Scaling factor for Q resolution (default: 0.025)
 
         Returns:
             Tuple of (2D numpy array of MCMC samples, list of parameter names)
         """
         # Prepare FitProblem
 
-        probe = QProbe(q_values, q_values * 0.025, R=noisy_reflectivity, dR=errors)
+        probe = QProbe(q_values, q_values * q_resolution_scale, R=noisy_reflectivity, dR=errors)
         expt = Experiment(sample=self.experiment.sample, probe=probe)
         problem = FitProblem(expt)
         problem.model_update()
@@ -308,18 +309,18 @@ class ExperimentDesigner:
             raise ValueError("MCMC samples must be a 2D array with at least 2 samples.")
 
         try:
-            # Transpose because gaussian_kde expects dimensions as rows
             kde = gaussian_kde(mcmc_samples.T)
-
-            # Evaluate log-pdf at sample points
-            log_pdf_values = kde.logpdf(mcmc_samples.T)
-
-            # Monte Carlo integration: H = -E[log(p(x))]
-            entropy_nats = -np.mean(log_pdf_values)
-            return entropy_nats / np.log(2)  # Convert to bits
+            log_probs = kde.logpdf(mcmc_samples.T)
+            entropy_nats = -np.mean(log_probs)
+            return entropy_nats / np.log(2)
         except Exception as e:
-            print(f"Warning: KDE failed, falling back to MVN: {e}")
-            return self._calculate_posterior_entropy_mvn(mcmc_samples)
+            # Fallback to multivariate normal entropy if KDE fails
+            logger.error("KDE failed in _calculate_posterior_entropy_kdn: %s", str(e), exc_info=True)
+            print("Warning: KDE failed, falling back to MVN entropy. Exception: {}".format(e))
+            cov_matrix = np.cov(mcmc_samples, rowvar=False)
+            cov_matrix += 1e-10 * np.eye(cov_matrix.shape[0])  # Regularize
+            entropy_nats = multivariate_normal.entropy(cov=cov_matrix)
+            return entropy_nats / np.log(2)
 
     def _calculate_posterior_entropy(
         self, mcmc_samples: np.ndarray, method: str
