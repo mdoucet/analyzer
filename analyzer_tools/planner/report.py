@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from bumps.fitters import fit
-from refl1d.names import FitProblem
+from refl1d.names import FitProblem, QProbe, Experiment
 
 from ..utils.model_utils import expt_from_model_file
 from ..utils.model_utils import get_sld_contour
@@ -116,19 +116,44 @@ def evaluate_alternate_model(
         result_dict = json.load(f)
 
     simulated_data = result_dict["simulated_data"]
+    results = result_dict["results"]
 
     # Go throught the simulated data and evaluate the alternate model
-    realization_data = []
-    for set in tqdm(simulated_data, desc="Optimizing", unit="val"):
+    alternate_simulated_data = []
+    total_fits = len(simulated_data) * len(simulated_data[0])
+    print(f"Fitting {total_fits} simulated datasets with alternate model...")
+
+    i_fit = 0
+    for i, set in enumerate(simulated_data):
         realization_data = []
         for j, data in enumerate(set):
+            i_fit += 1
+            print(f"Fitting simulation {j + 1} of {len(set)} ({i_fit} of {total_fits})")
             dq = np.asarray(data["dq_values"])
             experiment = expt_from_model_file(model_name, data["q_values"], dq)
 
-            problem = FitProblem(experiment)
+            struct_dict = experiment.parameters()["sample"]["layers"]
+            for layer in struct_dict:
+                for _, param in layer.items():
+                    if isinstance(param, dict):
+                        for _, sub_value in param.items():
+                            # TODO: need a more general way to set parameter values
+                            if sub_value.name == "THF rho":
+                                sub_value.value = results[i][0]
+                                print(
+                                    f"  Setting THF rho to {results[i][0]} for this fit")
+
+
+            probe = QProbe(
+                data["q_values"], dq, R=data["noisy_reflectivity"], dR=data["errors"]
+            )
+
+            expt = Experiment(sample=experiment.sample, probe=probe)
+
+            problem = FitProblem(expt)
             problem.model_update()
             mcmc_result = fit(
-                problem, method="dream", samples=mcmc_steps, burn=burn_steps, verbose=0
+                problem, method="dream", samples=mcmc_steps, burn=burn_steps, verbose=1
             )
             mcmc_result.state.keep_best()
             mcmc_result.state.mark_outliers()
@@ -155,11 +180,11 @@ def evaluate_alternate_model(
                 posterior_entropy=0,
             )
             realization_data.append(realization.model_dump(mode="json"))
-        simulated_data.append(realization_data)
+        alternate_simulated_data.append(realization_data)
 
     result_dict = {
         "results": [],
-        "simulated_data": simulated_data,
+        "simulated_data": alternate_simulated_data,
     }
 
     with open(output_file, "w") as f:
@@ -173,14 +198,15 @@ if __name__ == "__main__":
         json_file="optimization_results.json",
         output_dir="/home/mat/Downloads/analyzer/planner",
     )
-    evaluate_alternate_model(
-        model_name="models/cu_thf_no_oxide",
-        json_file="optimization_results.json",
-        output_file="/home/mat/Downloads/analyzer/planner/optimization_results_no_oxide.json",
-        mcmc_steps=1000,
-        burn_steps=500,
-    )
+    if True:
+        evaluate_alternate_model(
+            model_name="models/cu_thf_no_oxide",
+            json_file="optimization_results.json",
+            output_file="/home/mat/Downloads/analyzer/planner/optimization_results_no_oxide.json",
+            mcmc_steps=2000,
+            burn_steps=200,
+        )
     make_report(
-        json_file="optimization_results_no_oxide.json",
+        json_file="/home/mat/Downloads/analyzer/planner/optimization_results_no_oxide.json",
         output_dir="/home/mat/Downloads/analyzer/planner/alternate_model",
     )
