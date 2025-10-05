@@ -29,7 +29,6 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
     info_gains = [r[1] for r in results]
 
     fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
-    plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
 
     plt.plot(param_values, info_gains, marker="o")
     plt.xlabel("Parameter Value", fontsize=15)
@@ -41,7 +40,6 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
     # Plot simulated data for each parameter value
     for i, set in enumerate(simulated_data):
         fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
-        plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
         for j, data in enumerate(set):
             plt.errorbar(
                 data["q_values"],
@@ -54,6 +52,17 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
                 label=f"Simulation {j + 1}",
             )
             # plt.plot(data["q_values"], data["reflectivity"], label="True")
+            chi2 = np.average(
+                (
+                    (
+                        np.array(data["noisy_reflectivity"])
+                        - np.array(data["reflectivity"])
+                    )
+                    / np.array(data["errors"])
+                )
+                ** 2
+            )
+            plt.title(f"$\\chi^2$={chi2:.3f}")
             plt.xlabel("Q (1/A)", fontsize=15)
             plt.ylabel("Reflectivity", fontsize=15)
         plt.xscale("log")
@@ -64,7 +73,6 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
 
     for i, set in enumerate(simulated_data):
         fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
-        plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
         for j, data in enumerate(set):
             # Find the starting point of the distribution
             start_idx = 0
@@ -141,8 +149,8 @@ def evaluate_alternate_model(
                             if sub_value.name == "THF rho":
                                 sub_value.value = results[i][0]
                                 print(
-                                    f"  Setting THF rho to {results[i][0]} for this fit")
-
+                                    f"  Setting THF rho to {results[i][0]} for this fit"
+                                )
 
             probe = QProbe(
                 data["q_values"], dq, R=data["noisy_reflectivity"], dR=data["errors"]
@@ -166,11 +174,12 @@ def evaluate_alternate_model(
                 index=1,
                 align=-1,
             )[0]
+            _, reflectivity = experiment.reflectivity()
 
             realization = ExperimentRealization(
                 q_values=data["q_values"],
                 dq_values=dq,
-                reflectivity=data["reflectivity"],
+                reflectivity=reflectivity,
                 noisy_reflectivity=data["noisy_reflectivity"],
                 errors=data["errors"],
                 z=z,
@@ -198,7 +207,7 @@ if __name__ == "__main__":
         json_file="optimization_results.json",
         output_dir="/home/mat/Downloads/analyzer/planner",
     )
-    if True:
+    if False:
         evaluate_alternate_model(
             model_name="models/cu_thf_no_oxide",
             json_file="optimization_results.json",

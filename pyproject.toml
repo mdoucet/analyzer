@@ -69,7 +69,7 @@ source = ["analyzer_tools"]
 omit = ["*/tests/*", "*/test_*"]
 
 [tool.coverage.report]
-fail_under = 0
+fail_under = 20
 show_missing = true
 skip_covered = false
 

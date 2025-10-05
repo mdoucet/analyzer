@@ -61,7 +61,7 @@ def evaluate_param(
     experiment_designer.set_parameter_to_optimize(param_to_optimize, value)
     experiment_designer.problem.summarize()
 
-    #z, sld, _ = experiment_designer.experiment.smooth_profile()
+    # z, sld, _ = experiment_designer.experiment.smooth_profile()
     q_values, r_calc = experiment_designer.experiment.reflectivity()
 
     realization_gains = []
@@ -98,10 +98,15 @@ def evaluate_param(
                 align=-1,
             )[0]
 
+            best_p, _ = mcmc_result.state.best()
+            experiment_designer.problem.setp(best_p)
+
+            _, reflectivity = experiment_designer.experiment.reflectivity()
+
             realization = ExperimentRealization(
                 q_values=q_values,
                 dq_values=experiment_designer.simulator.dq_values,
-                reflectivity=r_calc,
+                reflectivity=reflectivity,
                 noisy_reflectivity=noisy_reflectivity,
                 errors=errors,
                 z=z,
@@ -155,7 +160,7 @@ class ExperimentDesigner:
         summary += f"\n    {'name':<20} {'value':<10} {'bounds':<20} {'H_prior':<10} {'H_posterior':<12}"
         for k, v in self.parameters.items():
             # Format columns: name (20), value (10), bounds (20), interest (5)
-            starred = '*' if v.is_of_interest else ''
+            starred = "*" if v.is_of_interest else ""
             par = f"{k}{starred}"
             summary += (
                 f"\n  - {par:<20} {v.value:<10.4g} {str(v.bounds):<20} "
@@ -281,7 +286,6 @@ class ExperimentDesigner:
         dq_values: np.ndarray,
         mcmc_steps: int = 1000,
         burn_steps: int = 1000,
-
     ) -> Tuple[np.ndarray, List[str]]:
         """
         Perform MCMC analysis using refl1d/bumps.
@@ -298,9 +302,7 @@ class ExperimentDesigner:
         """
         # Prepare FitProblem
 
-        probe = QProbe(
-            q_values, dq_values, R=noisy_reflectivity, dR=errors
-        )
+        probe = QProbe(q_values, dq_values, R=noisy_reflectivity, dR=errors)
         expt = Experiment(sample=self.experiment.sample, probe=probe)
         problem = FitProblem(expt)
         problem.model_update()
