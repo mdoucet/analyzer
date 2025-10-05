@@ -1,54 +1,81 @@
+import time
 import numpy as np
-from typing import Dict, List, Tuple, Optional
-import logging
+from typing import Dict, Optional, Tuple
 
 
-def add_instrumental_noise(
-    q_values: np.ndarray,
-    reflectivity_curve: np.ndarray,
-    counting_time: float = 1.0,
-    min_relative_error: float = 0.01,
-    base_relative_error: float = 0.10,
-) -> Tuple[np.ndarray, np.ndarray]:
+class InstrumentSimulator:
     """
-    Add realistic instrumental noise to reflectivity data.
+    Class to simulate instrumental effects on reflectivity data.
+    """
+
+    def __init__(
+        self,
+        data_file: Optional[str] = None,
+        q_values: Optional[np.ndarray] = None,
+        dq_values: Optional[np.ndarray | float] = 0.025,
+        relative_error: float = 0.10,
+    ):
+        self.q_values = q_values
+        self.dq_values = dq_values
+
+        if data_file:
+            # Load example data to get Q values and errors
+            data = load_measurement(data_file)
+            self.q_values = data["q"]
+            self.dq_values = data["dq"]
+            print(type(data["R"]))
+            self.relative_errors = np.where(
+                data["R"] == 0, relative_error, data["dR"] / data["R"]
+            )
+            self.relative_errors[self.relative_errors <= 0] = relative_error
+        elif q_values is not None:
+            self.q_values = q_values
+            self.dq_values = dq_values * np.ones(len(self.q_values))
+            self.relative_errors = relative_error * np.ones(len(self.q_values))
+        else:
+            self.q_values = np.logspace(np.log10(0.008), np.log10(0.2), 50)
+
+            if isinstance(self.dq_values, np.ndarray):
+                if len(self.dq_values) != len(self.q_values):
+                    raise ValueError("dq_values array must match length of q_values")
+                self.dq_values = self.dq_values
+            elif isinstance(self.dq_values, (int, float)):
+                self.dq_values = self.dq_values * np.ones(len(self.q_values))
+
+            self.relative_errors = relative_error * np.ones(len(self.q_values))
+
+        assert len(self.q_values) == len(self.dq_values) == len(self.relative_errors), (
+            "q_values, dq_values, and relative_errors must have the same length"
+        )
+
+    def add_noise(
+        self,
+        reflectivity: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        errors = self.relative_errors * reflectivity
+
+        # Add Gaussian noise
+        noise = np.random.normal(0, errors)
+        noisy_reflectivity = reflectivity + noise
+
+        return noisy_reflectivity, errors
+
+
+def load_measurement(filename: str) -> Dict[str, np.ndarray]:
+    """
+    Load measurement data from a file.
 
     Args:
-        q_values: Q values
-        reflectivity_curve: Noise-free reflectivity
-        counting_time: Relative counting time (affects noise level)
-        min_relative_error: Minimum relative error (default 0.01)
-        base_relative_error: Base relative error (default 0.1)
-
+        filename: Path to the data file (expects 3 columns: Q, R, dR, dQ)
     Returns:
-        Tuple of (noisy_reflectivity, errors)
+        Dictionary with keys 'q_values', 'reflectivity', 'errors'
     """
-    # Simple noise model: relative error inversely proportional to sqrt(R * counting_time)
-
-    # Calculate relative errors - more realistic model
-    #relative_errors = np.maximum(
-    #    min_relative_error,
-    #    base_relative_error
-    #    / np.sqrt(np.maximum(reflectivity_curve * counting_time, 1e-7)),
-    #)
-
-    relative_errors = base_relative_error
-
-
-    # Add Q-dependent component (higher Q = higher relative error)
-    #q_max = np.max(q_values)
-    #if q_max > 0:
-    #    q_factor = 1 + 0.5 * (q_values / q_max) ** 2
-    #    relative_errors *= q_factor
-
-    # Absolute errors
-    errors = relative_errors * reflectivity_curve
-
-    # Add Gaussian noise
-    noise = np.random.normal(0, errors)
-    noisy_reflectivity = reflectivity_curve + noise
-
-    # Ensure positive reflectivity
-    noisy_reflectivity = np.maximum(noisy_reflectivity, 1e-7)
-
-    return noisy_reflectivity, errors
+    data = np.loadtxt(filename)
+    if data.shape[1] < 4:
+        raise ValueError("Data file must have at least 4 columns: Q, R, dR, dQ")
+    return {
+        "q": data[:, 0],
+        "R": data[:, 1],
+        "dR": data[:, 2],
+        "dq": data[:, 3],
+    }

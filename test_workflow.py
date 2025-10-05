@@ -11,35 +11,29 @@ logging.basicConfig(
 
 from analyzer_tools.utils.model_utils import expt_from_model_file
 from analyzer_tools.planner.experiment_design import ExperimentDesigner
+from analyzer_tools.planner import instrument
 
 
 model_name = "models/cu_thf_planner"
-
-# Create Q values
-q_values = np.logspace(np.log10(0.008), np.log10(0.2), 100)
-dq_values = q_values * 0.025
-
+example_measurement = "tests/sample_data/REFL_218386_combined_data_auto.txt"
 
 # Create base experiment
-# TODO: write a test for this.
-experiment = expt_from_model_file(model_name, q_values, dq_values)
+simulator = instrument.InstrumentSimulator(data_file=example_measurement)
+experiment = expt_from_model_file(model_name, simulator.q_values, simulator.dq_values)
 
-designer = ExperimentDesigner(experiment)
+z, sld, _ = experiment.smooth_profile()
 
-# TODO: write a test for this.
-designer.get_parameters()
+designer = ExperimentDesigner(experiment, simulator=simulator)
 
-# TODO: write a test for this.
 h_prior = designer.prior_entropy()
 print(f"Prior entropy: {h_prior:.4f} bits")
 
 print(designer)
 
-
-results, simulated_data = designer.optimize(
+results, simulated_data = designer.optimize_parallel(
     param_to_optimize="THF rho",
     param_values=[1.5, 2.5, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5],
-    realizations=5,
+    realizations=4,
 )
 
 # Print results

@@ -7,19 +7,17 @@ of Treece et al., J. Appl. Cryst. (2019), 52, 47-59.
 """
 
 import numpy as np
-import copy
 from typing import Dict, List, Tuple, Optional
 import logging
 from pydantic import BaseModel
 from scipy.stats import gaussian_kde, multivariate_normal
 
-from bumps import dream
 from bumps.fitters import fit
 from refl1d.names import Experiment, FitProblem, Parameter, QProbe
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
-from .instrument import add_instrumental_noise
+from . import instrument
 from ..utils.model_utils import get_sld_contour
 
 logger = logging.getLogger(__name__)
@@ -37,6 +35,7 @@ class SampleParameter(BaseModel):
 
 class ExperimentRealization(BaseModel):
     q_values: List[float]
+    dq_values: List[float]
     reflectivity: List[float]
     noisy_reflectivity: List[float]
     errors: List[float]
@@ -58,26 +57,24 @@ def evaluate_param(
     prior_entropy: float,
     mcmc_steps: int,
     entropy_method: str,
-    counting_time: float,
 ):
     experiment_designer.set_parameter_to_optimize(param_to_optimize, value)
     experiment_designer.problem.summarize()
 
-    z, sld, _ = experiment_designer.experiment.smooth_profile()
+    #z, sld, _ = experiment_designer.experiment.smooth_profile()
     q_values, r_calc = experiment_designer.experiment.reflectivity()
 
     realization_gains = []
     realization_data = []
     for _ in range(realizations):
         try:
-            noisy_reflectivity, errors = add_instrumental_noise(
-                q_values, r_calc, counting_time
-            )
+            noisy_reflectivity, errors = experiment_designer.simulator.add_noise(r_calc)
 
             mcmc_result = experiment_designer.perform_mcmc(
                 q_values,
                 noisy_reflectivity,
                 errors,
+                dq_values=experiment_designer.simulator.dq_values,
                 mcmc_steps=mcmc_steps,
             )
             mcmc_samples = mcmc_result.state.draw().points
@@ -89,7 +86,6 @@ def evaluate_param(
             posterior_entropy = experiment_designer._calculate_posterior_entropy(
                 marginal_samples, method=entropy_method
             )
-
             info_gain = prior_entropy - posterior_entropy
             realization_gains.append(info_gain)
 
@@ -104,6 +100,7 @@ def evaluate_param(
 
             realization = ExperimentRealization(
                 q_values=q_values,
+                dq_values=experiment_designer.simulator.dq_values,
                 reflectivity=r_calc,
                 noisy_reflectivity=noisy_reflectivity,
                 errors=errors,
@@ -132,7 +129,10 @@ class ExperimentDesigner:
     """
 
     def __init__(
-        self, experiment: Experiment, parameters_of_interest: Optional[List[str]] = None
+        self,
+        experiment: Experiment,
+        simulator: instrument.InstrumentSimulator,
+        parameters_of_interest: Optional[List[str]] = None,
     ):
         self.experiment = experiment
         self.problem = FitProblem(experiment)
@@ -146,14 +146,20 @@ class ExperimentDesigner:
         # The list of all parameters in the model, including fixed parameters
         self.all_model_parameters = self._model_parameters_to_dict()
 
+        if simulator is None:
+            simulator = instrument.InstrumentSimulator()
+        self.simulator = simulator
+
     def __repr__(self):
         summary = f"\nExperimentDesigner with {len(self.problem.parameters)} parameters"
-        summary += f"\n    {'name':<20} {'value':<10} {'bounds':<20} {'*':<5} {'H_prior':<10} {'H_posterior':<12}"
+        summary += f"\n    {'name':<20} {'value':<10} {'bounds':<20} {'H_prior':<10} {'H_posterior':<12}"
         for k, v in self.parameters.items():
             # Format columns: name (20), value (10), bounds (20), interest (5)
+            starred = '*' if v.is_of_interest else ''
+            par = f"{k}{starred}"
             summary += (
-                f"\n  - {k:<20} {v.value:<10.4g} {str(v.bounds):<20} "
-                f"{'*' if v.is_of_interest else '':<5} {v.h_prior:<10.4g} {v.h_posterior:<12.4g}"
+                f"\n  - {par:<20} {v.value:<10.4g} {str(v.bounds):<20} "
+                f"{v.h_prior:<10.4g} {v.h_posterior:<12.4g}"
             )
         return summary
 
@@ -272,9 +278,10 @@ class ExperimentDesigner:
         q_values: np.ndarray,
         noisy_reflectivity: np.ndarray,
         errors: np.ndarray,
+        dq_values: np.ndarray,
         mcmc_steps: int = 1000,
         burn_steps: int = 1000,
-        q_resolution_scale: float = 0.025,
+
     ) -> Tuple[np.ndarray, List[str]]:
         """
         Perform MCMC analysis using refl1d/bumps.
@@ -285,15 +292,14 @@ class ExperimentDesigner:
             errors: Error bars
             mcmc_steps: Number of MCMC steps
             burn_steps: Number of burn-in steps
-            q_resolution_scale: Scaling factor for Q resolution (default: 0.025)
-
+            dq_values: Q resolution values
         Returns:
             Tuple of (2D numpy array of MCMC samples, list of parameter names)
         """
         # Prepare FitProblem
 
         probe = QProbe(
-            q_values, q_values * q_resolution_scale, R=noisy_reflectivity, dR=errors
+            q_values, dq_values, R=noisy_reflectivity, dR=errors
         )
         expt = Experiment(sample=self.experiment.sample, probe=probe)
         problem = FitProblem(expt)
@@ -426,14 +432,13 @@ class ExperimentDesigner:
         else:
             raise ValueError("Invalid entropy method. Choose 'mvn' or 'kdn'.")
 
-    def optimize(
+    def optimize_parallel(
         self,
         param_to_optimize: str,
         param_values: list,
         realizations: int = 3,
         mcmc_steps: int = 2000,
         entropy_method: str = "kdn",
-        counting_time: float = 1.0,
     ) -> Tuple[List[Tuple[float, float, float]], List[List[Dict]]]:
         """
         Optimize the experimental design by evaluating the expected information gain
@@ -451,9 +456,7 @@ class ExperimentDesigner:
             Number of MCMC steps for posterior sampling (default is 2000).
         entropy_method : str, optional
             Method for entropy calculation ('mvn' or 'kdn', default is 'mvn').
-        counting_time : float, optional
-            Relative counting time for the experiment (default is 1.0).
-            This parameter affects the noise level in the simulations.
+
         Returns:
             List of (parameter_value, information_gain, std_info_gain) tuples and list of simulated data
         """
@@ -469,8 +472,10 @@ class ExperimentDesigner:
         logger.info(f"Method: {entropy_method}, MCMC steps: {mcmc_steps}")
 
         if param_to_optimize not in self.all_model_parameters:
-                    raise ValueError(f"Parameter {param_to_optimize} not found in model parameters")
-            
+            raise ValueError(
+                f"Parameter {param_to_optimize} not found in model parameters"
+            )
+
         with ProcessPoolExecutor() as executor:
             future_to_value = {
                 executor.submit(
@@ -482,7 +487,6 @@ class ExperimentDesigner:
                     prior_entropy,
                     mcmc_steps,
                     entropy_method,
-                    counting_time,
                 ): value
                 for value in param_values
             }
@@ -520,3 +524,72 @@ class ExperimentDesigner:
         ordered_simulated_data = [value_to_data[value] for value in param_values]
 
         return ordered_results, ordered_simulated_data
+
+    def optimize(
+        self,
+        param_to_optimize: str,
+        param_values: list,
+        realizations: int = 3,
+        mcmc_steps: int = 2000,
+        entropy_method: str = "kdn",
+    ) -> Tuple[List[Tuple[float, float, float]], List[List[Dict]]]:
+        """
+        Optimize the experimental design sequentially by evaluating the expected information gain
+        for different parameter values.
+
+        Parameters
+        ----------
+        param_to_optimize : str
+            The name of the parameter to optimize.
+        param_values : list
+            A list of parameter values to evaluate.
+        realizations : int, optional
+            Number of noise realizations to simulate (default is 3).
+        mcmc_steps : int, optional
+            Number of MCMC steps for posterior sampling (default is 2000).
+        entropy_method : str, optional
+            Method for entropy calculation ('mvn' or 'kdn', default is 'mvn').
+
+        Returns:
+            List of (parameter_value, information_gain, std_info_gain) tuples and list of simulated data
+        """
+        results = []
+        simulated_data = []
+        prior_entropy = self.prior_entropy()
+
+        logger.info(
+            f"Starting sequential optimization for parameter: {param_to_optimize}"
+        )
+        logger.info(f"Prior Entropy: {prior_entropy:.4f} bits")
+        logger.info(
+            f"Testing {len(param_values)} values with {realizations} realizations each"
+        )
+        logger.info(f"Method: {entropy_method}, MCMC steps: {mcmc_steps}")
+
+        if param_to_optimize not in self.all_model_parameters:
+            raise ValueError(
+                f"Parameter {param_to_optimize} not found in model parameters"
+            )
+
+        for value in tqdm(param_values, desc="Optimizing", unit="val"):
+            try:
+                result_value, avg_info_gain, std_info_gain, realization_data = (
+                    evaluate_param(
+                        self,
+                        param_to_optimize,
+                        value,
+                        realizations,
+                        prior_entropy,
+                        mcmc_steps,
+                        entropy_method,
+                    )
+                )
+                results.append((result_value, avg_info_gain, std_info_gain))
+                simulated_data.append(realization_data)
+                logger.info(
+                    f"Value {result_value}: ΔH = {avg_info_gain:.4f} ± {std_info_gain:.4f} bits"
+                )
+            except Exception as e:
+                logger.error(f"Error evaluating value {value}: {e}")
+
+        return results, simulated_data

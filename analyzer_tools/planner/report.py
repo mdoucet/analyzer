@@ -3,6 +3,15 @@ import json
 import numpy as np
 
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+from bumps.fitters import fit
+from refl1d.names import FitProblem
+
+from ..utils.model_utils import expt_from_model_file
+from ..utils.model_utils import get_sld_contour
+
+from ..planner.experiment_design import ExperimentRealization
 
 
 def make_report(json_file="optimization_results.json", output_dir="planner_report"):
@@ -25,7 +34,6 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
     plt.plot(param_values, info_gains, marker="o")
     plt.xlabel("Parameter Value", fontsize=15)
     plt.ylabel("Information Gain (bits)", fontsize=15)
-    plt.title("Information Gain vs Parameter Value", fontsize=15)
     plt.grid(True)
     plt.savefig(f"{output_dir}/information_gain.png")
     plt.close()
@@ -45,7 +53,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
                 linestyle="",
                 label=f"Simulation {j + 1}",
             )
-            #plt.plot(data["q_values"], data["reflectivity"], label="True")
+            # plt.plot(data["q_values"], data["reflectivity"], label="True")
             plt.xlabel("Q (1/A)", fontsize=15)
             plt.ylabel("Reflectivity", fontsize=15)
         plt.xscale("log")
@@ -93,8 +101,86 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
         plt.close()
 
 
+def evaluate_alternate_model(
+    model_name: str,
+    json_file="optimization_results.json",
+    output_file="optimization_results_alternate.json",
+    mcmc_steps: int = 1000,
+    burn_steps: int = 1000,
+):
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    with open(json_file, "r") as f:
+        result_dict = json.load(f)
+
+    simulated_data = result_dict["simulated_data"]
+
+    # Go throught the simulated data and evaluate the alternate model
+    realization_data = []
+    for set in tqdm(simulated_data, desc="Optimizing", unit="val"):
+        realization_data = []
+        for j, data in enumerate(set):
+            dq = np.asarray(data["dq_values"])
+            experiment = expt_from_model_file(model_name, data["q_values"], dq)
+
+            problem = FitProblem(experiment)
+            problem.model_update()
+            mcmc_result = fit(
+                problem, method="dream", samples=mcmc_steps, burn=burn_steps, verbose=0
+            )
+            mcmc_result.state.keep_best()
+            mcmc_result.state.mark_outliers()
+
+            z, best, low, high = get_sld_contour(
+                problem,
+                mcmc_result.state,
+                cl=90,
+                npoints=200,
+                index=1,
+                align=-1,
+            )[0]
+
+            realization = ExperimentRealization(
+                q_values=data["q_values"],
+                dq_values=dq,
+                reflectivity=data["reflectivity"],
+                noisy_reflectivity=data["noisy_reflectivity"],
+                errors=data["errors"],
+                z=z,
+                sld_best=best,
+                sld_low=low,
+                sld_high=high,
+                posterior_entropy=0,
+            )
+            realization_data.append(realization.model_dump(mode="json"))
+        simulated_data.append(realization_data)
+
+    result_dict = {
+        "results": [],
+        "simulated_data": simulated_data,
+    }
+
+    with open(output_file, "w") as f:
+        json.dump(result_dict, f, indent=4)
+
+    return realization_data
+
+
 if __name__ == "__main__":
     make_report(
         json_file="optimization_results.json",
         output_dir="/home/mat/Downloads/analyzer/planner",
+    )
+    evaluate_alternate_model(
+        model_name="models/cu_thf_no_oxide",
+        json_file="optimization_results.json",
+        output_file="/home/mat/Downloads/analyzer/planner/optimization_results_no_oxide.json",
+        mcmc_steps=1000,
+        burn_steps=500,
+    )
+    make_report(
+        json_file="optimization_results_no_oxide.json",
+        output_dir="/home/mat/Downloads/analyzer/planner/alternate_model",
     )
