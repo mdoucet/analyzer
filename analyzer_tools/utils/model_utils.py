@@ -6,6 +6,7 @@ import importlib
 from pathlib import Path
 
 import refl1d
+from refl1d import uncertainty
 from refl1d.names import QProbe, Parameter, SLD, Slab, Experiment
 
 from bumps import serialize
@@ -266,6 +267,32 @@ def calculate_reflectivity(model_expt_json_file, q, q_resolution=0.025):
     return r
 
 
+def get_sld_contour(
+    problem, state, cl=90, npoints=200, trim=1000, portion=0.3, index=1, align="auto"
+):
+    points, _logp = state.sample(portion=portion)
+    points = points[-trim:]
+    original = problem.getp()
+    _profiles, slabs, Q, residuals = uncertainty.calc_errors(problem, points)
+    problem.setp(original)
+
+    profiles = uncertainty.align_profiles(_profiles, slabs, align)
+
+    # Group 1 is rho
+    # Group 2 is irho
+    # Group 3 is rhoM
+    contours = []
+    for model, group in profiles.items():
+        ## Find limits of all profiles
+        z = np.hstack([line[0] for line in group])
+        zp = np.linspace(np.min(z), np.max(z), npoints)
+
+        # Columns are z, best, low, high
+        data, cols = uncertainty._build_profile_matrix(group, index, zp, [cl])
+        contours.append(data)
+    return contours
+
+
 def expt_from_model_file(
     model_file: str,
     q: np.ndarray,
@@ -296,12 +323,13 @@ def expt_from_model_file(
     model_path = Path(model_file).absolute()
     # Add .py extension if not present
     if not model_path.suffix:
-        model_path = model_path.with_suffix('.py')
-    
+        model_path = model_path.with_suffix(".py")
+
     model_name = model_path.stem
 
     # Dynamically import the model module from the given file path
     import importlib.util
+
     spec = importlib.util.spec_from_file_location(model_name, str(model_path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load module spec from {model_path}")

@@ -13,6 +13,7 @@ import logging
 from pydantic import BaseModel
 from scipy.stats import gaussian_kde, multivariate_normal
 
+from bumps import dream
 from bumps.fitters import fit
 from refl1d.names import Experiment, FitProblem, Parameter, QProbe
 from tqdm import tqdm
@@ -20,6 +21,7 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 from .instrument import add_instrumental_noise
+from ..utils.model_utils import get_sld_contour
 
 
 # Type definitions
@@ -32,8 +34,19 @@ class SampleParameter(BaseModel):
     h_posterior: float = 0
 
 
-ParamDict = Dict[str, float]
-PriorDict = Dict[str, Tuple[float, float]]
+class ExperimentRealization(BaseModel):
+    q_values: List[float]
+    reflectivity: List[float]
+    noisy_reflectivity: List[float]
+    errors: List[float]
+    z: List[float]
+    sld_best: List[float]
+    # 90% CL
+    sld_low: List[float]
+    sld_high: List[float]
+    posterior_entropy: float = 0
+    # Entropy of the marginal distribution of each parameter
+    marginal_entropy: List[float] = None
 
 
 class ExperimentDesigner:
@@ -231,9 +244,10 @@ class ExperimentDesigner:
         # step.H_marg, _, _ = calc_entropy(step.draw.points, select_pars=self.sel, options=self.entropy_options)
         # step.dH_marg = self.init_entropy_marg - step.H_marg
 
-        samples = result.state.draw()
-
-        return samples.points
+        return result
+    
+        #samples = result.state.draw()
+        #return samples.points
 
     def _extract_marginal_samples(
         self,
@@ -261,10 +275,10 @@ class ExperimentDesigner:
             if param_name in all_param_names:
                 indices.append(all_param_names.index(param_name))
             else:
-                print(f"Warning: Parameter '{param_name}' not found in MCMC samples")
+                logger.warning(f"Warning: Parameter '{param_name}' not found in MCMC samples")
 
         if not indices:
-            print("Warning: No parameters of interest found, using all parameters")
+            logger.debug("Warning: No parameters of interest found, using all parameters")
             return mcmc_samples
 
         return mcmc_samples[:, indices]
@@ -289,7 +303,7 @@ class ExperimentDesigner:
             return entropy_nats / np.log(2)  # Convert to bits
         except np.linalg.LinAlgError:
             # Handle singular covariance matrix
-            print("Warning: Singular covariance matrix, using regularized version")
+            logger.error("Warning: Singular covariance matrix, using regularized version")
             cov_matrix = np.cov(mcmc_samples, rowvar=False)
             cov_matrix += 1e-10 * np.eye(cov_matrix.shape[0])  # Regularize
             entropy_nats = multivariate_normal.entropy(cov=cov_matrix)
@@ -315,8 +329,7 @@ class ExperimentDesigner:
             return entropy_nats / np.log(2)
         except Exception as e:
             # Fallback to multivariate normal entropy if KDE fails
-            logger.error("KDE failed in _calculate_posterior_entropy_kdn: %s", str(e), exc_info=True)
-            print("Warning: KDE failed, falling back to MVN entropy. Exception: {}".format(e))
+            logger.error("Warning: KDE failed, falling back to MVN entropy. Exception: {}".format(e))
             cov_matrix = np.cov(mcmc_samples, rowvar=False)
             cov_matrix += 1e-10 * np.eye(cov_matrix.shape[0])  # Regularize
             entropy_nats = multivariate_normal.entropy(cov=cov_matrix)
@@ -346,7 +359,6 @@ class ExperimentDesigner:
         self,
         param_to_optimize: str,
         param_values: list,
-        parameters_of_interest: list = None,
         realizations: int = 3,
         mcmc_steps: int = 2000,
         entropy_method: str = "kdn",
@@ -377,6 +389,7 @@ class ExperimentDesigner:
             List of (parameter_value, information_gain) tuples
         """
         results = []
+        simulated_data = []
 
         # Compute prior entropy
         prior_entropy = self.prior_entropy()
@@ -399,13 +412,14 @@ class ExperimentDesigner:
 
             self.problem.summarize()
 
+            z, sld, _ = self.experiment.smooth_profile()
+
             # Calculate noise-free reflectivity
             q_values, r_calc = self.experiment.reflectivity()
 
             realization_gains = []
+            realization_data = []
             for j in range(realizations):
-                logger.info(f"    Realization {j + 1}/{realizations}...")
-
                 try:
                     # Add noise
                     noisy_reflectivity, errors = add_instrumental_noise(
@@ -413,11 +427,12 @@ class ExperimentDesigner:
                     )
 
                     # Perform MCMC
-                    mcmc_samples = self.perform_mcmc(
+                    mcmc_result = self.perform_mcmc(
                         q_values,
                         noisy_reflectivity,
                         errors,
                     )
+                    mcmc_samples = mcmc_result.state.draw().points
 
                     # Extract marginal samples if parameters of interest specified
                     marginal_samples = self._extract_marginal_samples(mcmc_samples)
@@ -430,19 +445,44 @@ class ExperimentDesigner:
                     # Information gain
                     info_gain = prior_entropy - posterior_entropy
                     realization_gains.append(info_gain)
-                    print(f"ΔH = {info_gain:.3f} bits")
+                    logger.info(f"ΔH = {info_gain:.3f} bits")
+
+                    # %90 confidence interval for SLD
+                    z, best, low, high = get_sld_contour(
+                        self.problem,
+                        mcmc_result.state,
+                        cl=90,
+                        npoints=200,
+                        index=1,
+                        align=-1,
+                    )[0]
+
+                    realization = ExperimentRealization(
+                        q_values=q_values,
+                        reflectivity=r_calc,
+                        noisy_reflectivity=noisy_reflectivity,
+                        errors=errors,
+                        z=z,
+                        sld_best=best,
+                        sld_low=low,
+                        sld_high=high,
+                        posterior_entropy=posterior_entropy,
+                    )
+                    realization_data.append(realization.model_dump(mode="json"))
 
                 except Exception as e:
-                    print(f"Error: {e}")
+                    logger.error(f"Error: {e}")
+                    raise
                     realization_gains.append(0.0)
 
             # Average information gain
             avg_info_gain = np.mean(realization_gains)
             std_info_gain = np.std(realization_gains)
-            print(
+            logger.info(
                 f"    -> Average Information Gain: {avg_info_gain:.4f} ± {std_info_gain:.4f} bits"
             )
 
             results.append((value, avg_info_gain))
+            simulated_data.append(realization_data)
 
-        return results
+        return results, simulated_data
