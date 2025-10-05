@@ -7,8 +7,6 @@ and comprehensive error handling tests.
 
 import numpy as np
 import pytest
-import tempfile
-import os
 from unittest.mock import patch
 
 from analyzer_tools.utils.model_utils import expt_from_model_file
@@ -90,7 +88,7 @@ class TestExperimentDesigner:
         designer.set_parameter_to_optimize("THF rho", 5.0)
         
         # With empty param_values, should return empty results
-        results = designer.optimize(
+        results, _ = designer.optimize(
             param_to_optimize="THF rho",
             param_values=[],
             realizations=1
@@ -113,7 +111,7 @@ class TestExperimentDesigner:
         designer.set_parameter_to_optimize("THF rho", 5.0)
         
         # With zero realizations, should complete but return NaN values
-        results = designer.optimize(
+        results, simulated_data = designer.optimize(
             param_to_optimize="THF rho",
             param_values=[1.0, 2.0],
             realizations=0
@@ -121,7 +119,7 @@ class TestExperimentDesigner:
         
         # Should return results but with NaN information gain
         assert len(results) == 2
-        for param_val, info_gain in results:
+        for param_val, info_gain, std_info_gain in results:
             assert isinstance(param_val, (int, float))
             assert np.isnan(info_gain)  # Should be NaN due to mean of empty list
     
@@ -129,12 +127,12 @@ class TestExperimentDesigner:
     def test_optimize_basic_functionality(self, mock_random, designer):
         """Test basic optimize functionality with mocked randomness."""
         # Set up deterministic random behavior
-        mock_random.return_value = np.array([0.0, 0.0, 0.0])
+        mock_random.return_value = np.array([0.0, 0.0, 0.0, 0.0])
         
         designer.set_parameter_to_optimize("THF rho", 5.0)
         
         # Run optimization with minimal parameters for speed
-        results = designer.optimize(
+        results, simulated_data = designer.optimize(
             param_to_optimize="THF rho",
             param_values=[4.5, 5.0],
             realizations=1  # Minimal realizations for test speed
@@ -142,11 +140,13 @@ class TestExperimentDesigner:
         
         # Check that results are returned in expected format
         assert isinstance(results, list)
+        assert isinstance(simulated_data, list)
         assert len(results) == 2  # Should have results for both values
-        
-        for param_val, info_gain in results:
+
+        for param_val, info_gain, std_info_gain in results:
             assert isinstance(param_val, (int, float))
             assert isinstance(info_gain, (int, float))
+            assert isinstance(std_info_gain, (int, float))
 
 
 class TestExptFromModelFile:

@@ -18,7 +18,7 @@ except Exception:
     HAS_BUMPS = False
 
 if HAS_BUMPS:
-    from . import fit_uncertainties, model_utils
+    from . import model_utils
     from refl1d.names import FitProblem
     from bumps.serialize import load_file
     from refl1d.bumps_interface import fitplugin
@@ -72,7 +72,7 @@ def plot_sld(profile_file, label, show_cl=True, z_offset=0.0):
         model_path = profile_file.replace("-profile.dat", "")
         state = dream.state.load_state(model_path)
 
-        z, best, low, high = fit_uncertainties.get_sld_contour(
+        z, best, low, high = model_utils.get_sld_contour(
             problem, state, cl=90, align=-1
         )[0]
 

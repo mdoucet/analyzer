@@ -434,7 +434,7 @@ class ExperimentDesigner:
         mcmc_steps: int = 2000,
         entropy_method: str = "kdn",
         counting_time: float = 1.0,
-    ):
+    ) -> Tuple[List[Tuple[float, float, float]], List[List[Dict]]]:
         """
         Optimize the experimental design by evaluating the expected information gain
         for different parameter values.
@@ -455,7 +455,7 @@ class ExperimentDesigner:
             Relative counting time for the experiment (default is 1.0).
             This parameter affects the noise level in the simulations.
         Returns:
-            List of (parameter_value, information_gain) tuples
+            List of (parameter_value, information_gain, std_info_gain) tuples and list of simulated data
         """
         results = []
         simulated_data = []
@@ -468,6 +468,9 @@ class ExperimentDesigner:
         )
         logger.info(f"Method: {entropy_method}, MCMC steps: {mcmc_steps}")
 
+        if param_to_optimize not in self.all_model_parameters:
+                    raise ValueError(f"Parameter {param_to_optimize} not found in model parameters")
+            
         with ProcessPoolExecutor() as executor:
             future_to_value = {
                 executor.submit(
