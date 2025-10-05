@@ -96,5 +96,5 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
 if __name__ == "__main__":
     make_report(
         json_file="optimization_results.json",
-        output_dir="/Users/mathieu/Downloads/analyzer/planner",
+        output_dir="/home/mat/Downloads/analyzer/planner",
     )

@@ -30,32 +30,27 @@ designer = ExperimentDesigner(experiment)
 designer.get_parameters()
 
 # TODO: write a test for this.
-h_prior =  designer.prior_entropy()
+h_prior = designer.prior_entropy()
 print(f"Prior entropy: {h_prior:.4f} bits")
 
 print(designer)
 
-# TODO: write a test for this.
-print(designer._model_parameters_to_dict())
 
-designer.set_parameter_to_optimize("THF rho", 5.0)
-
-results, simulated_data = designer.optimize(param_to_optimize="THF rho", param_values=[1.5, 2.5,3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5], realizations=5)
+results, simulated_data = designer.optimize(
+    param_to_optimize="THF rho",
+    param_values=[1.5, 2.5, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5],
+    realizations=5,
+)
 
 # Print results
 print(f"\n{'=' * 50}")
 print("OPTIMIZATION RESULTS")
 print(f"{'=' * 50}")
 print(f"{'Parameter Value':<15} {'Information Gain (bits)':<20}")
-print("-" * 35)
+print("-" * 50)
 
-for param_val, info_gain in results:
-    print(f"{param_val:<15.4f} {info_gain:<20.4f}")
-
-# Find optimal value
-max_idx = np.argmax([ig for _, ig in results])
-optimal_value = results[max_idx][0]
-max_gain = results[max_idx][1]
+for param_val, info_gain, std_gain in results:
+    print(f"Value {param_val}: ΔH = {info_gain:.4f} ± {std_gain:.4f}")
 
 
 result_dict = {
