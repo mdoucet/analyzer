@@ -31,6 +31,7 @@ dependencies = [
     "configparser",
     "pydantic",
     "tqdm",
+    "click",
 ]
 
 [project.optional-dependencies]

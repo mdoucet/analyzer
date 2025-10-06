@@ -1,8 +1,14 @@
-"""Tests for analyzer_tools.cli module."""
+"""Tests for analyzer_tools.cli module and planner CLI."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+import tempfile
+import os
+import json
+from unittest.mock import patch
+from click.testing import CliRunner
+
 from analyzer_tools.cli import main
+from analyzer_tools.planner.cli import optimize, main as planner_main
 
 
 class TestCliMain:
@@ -47,6 +53,133 @@ class TestCliMain:
         combined_output = " ".join(print_calls)
         
         assert "Basic Analysis" in combined_output
+
+
+class TestPlannerCLI:
+    """Test the planner CLI functionality."""
+    
+    def test_optimize_help(self):
+        """Test that the optimize command shows help."""
+        runner = CliRunner()
+        result = runner.invoke(optimize, ['--help'])
+        
+        assert result.exit_code == 0
+        assert "Optimize neutron reflectometry experiment design" in result.output
+        assert "--data-file" in result.output
+        assert "--model-file" in result.output
+    
+    def test_main_help(self):
+        """Test that the main command shows help."""
+        runner = CliRunner()
+        result = runner.invoke(planner_main, ['--help'])
+        
+        assert result.exit_code == 0
+        assert "Neutron Reflectometry Experiment Planning Tool" in result.output
+        assert "optimize" in result.output
+    
+    def test_optimize_missing_required_args(self):
+        """Test that missing required arguments cause failure."""
+        runner = CliRunner()
+        result = runner.invoke(optimize, [])
+        
+        assert result.exit_code != 0
+        assert "Missing option" in result.output
+    
+    def test_optimize_invalid_data_file(self):
+        """Test that invalid data file causes failure."""
+        runner = CliRunner()
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(optimize, [
+                '--data-file', 'nonexistent.txt',
+                '--model-file', 'models/cu_thf_planner',
+                '--output-dir', temp_dir,
+                '--param', 'THF rho',
+                '--param-values', '4.0,5.0',
+                '--num-realizations', '1'
+            ])
+            
+            assert result.exit_code != 0
+    
+    def test_optimize_invalid_param_values(self):
+        """Test that invalid parameter values cause failure."""
+        runner = CliRunner()
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(optimize, [
+                '--data-file', 'tests/sample_data/REFL_218386_combined_data_auto.txt',
+                '--model-file', 'models/cu_thf_planner',
+                '--output-dir', temp_dir,
+                '--param', 'THF rho',
+                '--param-values', 'invalid,values',
+                '--num-realizations', '1'
+            ])
+            
+            assert result.exit_code != 0
+    
+    @pytest.mark.slow
+    def test_optimize_basic_functionality(self):
+        """Test basic optimization functionality with minimal parameters."""
+        runner = CliRunner()
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(optimize, [
+                '--data-file', 'tests/sample_data/REFL_218386_combined_data_auto.txt',
+                '--model-file', 'models/cu_thf_planner',
+                '--output-dir', temp_dir,
+                '--param', 'THF rho',
+                '--param-values', '4.0,5.0',
+                '--num-realizations', '1',
+                '--mcmc-steps', '50',  # Very small for testing
+                '--burn-steps', '50',
+                '--sequential',
+                '--entropy-method', 'mvn'
+            ])
+            
+            print("STDOUT:", result.output)
+            if result.exception:
+                print("Exception:", result.exception)
+                import traceback
+                traceback.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
+            
+            # Check that the command completed successfully
+            assert result.exit_code == 0
+            
+            # Check that output was generated
+            assert "Starting experiment design optimization" in result.output
+            assert "OPTIMIZATION RESULTS" in result.output
+            
+            # Check that output file was created
+            output_file = os.path.join(temp_dir, "optimization_results.json")
+            assert os.path.exists(output_file)
+            
+            # Check output file contents
+            with open(output_file, 'r') as f:
+                data = json.load(f)
+                
+            assert "parameter" in data
+            assert "results" in data
+            assert data["parameter"] == "THF rho"
+            assert len(data["results"]) == 2  # Two parameter values
+            assert "optimal_value" in data
+            assert "max_information_gain" in data
+    
+    def test_entropy_method_validation(self):
+        """Test that entropy method validation works."""
+        runner = CliRunner()
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = runner.invoke(optimize, [
+                '--data-file', 'tests/sample_data/REFL_218386_combined_data_auto.txt',
+                '--model-file', 'models/cu_thf_planner',
+                '--output-dir', temp_dir,
+                '--param', 'THF rho',
+                '--param-values', '4.0,5.0',
+                '--entropy-method', 'invalid'
+            ])
+            
+            assert result.exit_code != 0
+            assert "Invalid value for '--entropy-method'" in result.output
     
     @patch('analyzer_tools.registry.print_tool_overview')
     def test_no_arguments_calls_welcome(self, mock_overview):
