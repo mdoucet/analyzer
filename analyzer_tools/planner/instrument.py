@@ -23,7 +23,6 @@ class InstrumentSimulator:
             data = load_measurement(data_file)
             self.q_values = data["q"]
             self.dq_values = data["dq"]
-            print(type(data["R"]))
             self.relative_errors = np.where(
                 data["R"] == 0, relative_error, data["dR"] / data["R"]
             )

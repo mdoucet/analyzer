@@ -3,7 +3,6 @@ import json
 import numpy as np
 
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 from bumps.fitters import fit
 from refl1d.names import FitProblem, QProbe, Experiment
@@ -29,7 +28,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
     info_gains = [r[1] for r in results]
 
     fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
-
+    plt.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.17)
     plt.plot(param_values, info_gains, marker="o")
     plt.xlabel("Parameter Value", fontsize=15)
     plt.ylabel("Information Gain (bits)", fontsize=15)
@@ -40,6 +39,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
     # Plot simulated data for each parameter value
     for i, set in enumerate(simulated_data):
         fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
+        plt.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.17)
         for j, data in enumerate(set):
             plt.errorbar(
                 data["q_values"],
@@ -51,7 +51,8 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
                 linestyle="",
                 label=f"Simulation {j + 1}",
             )
-            # plt.plot(data["q_values"], data["reflectivity"], label="True")
+            if j == 0:
+                plt.plot(data["q_values"], data["reflectivity"], label="True")
             chi2 = np.average(
                 (
                     (
@@ -63,7 +64,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
                 ** 2
             )
             plt.title(f"$\\chi^2$={chi2:.3f}")
-            plt.xlabel("Q (1/A)", fontsize=15)
+            plt.xlabel("Q ($1/\\AA$)", fontsize=15)
             plt.ylabel("Reflectivity", fontsize=15)
         plt.xscale("log")
         plt.yscale("log")
@@ -73,6 +74,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
 
     for i, set in enumerate(simulated_data):
         fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
+        plt.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.17)
         for j, data in enumerate(set):
             # Find the starting point of the distribution
             start_idx = 0
