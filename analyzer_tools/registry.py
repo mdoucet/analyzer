@@ -79,6 +79,19 @@ TOOLS = {
             "python analyzer_tools/create_temporary_model.py cu_thf cu_thf_wide --adjust Cu thickness 300,1000"
         ],
         data_type="both"
+    ),
+    
+    "experiment_optimizer": ToolInfo(
+        name="Experimental Design Optimizer",
+        module="analyzer_tools.experiment_optimizer",
+        description="Optimize neutron reflectometry experimental parameters by maximizing expected Shannon information gain using Bayesian analysis. Based on Treece et al., J. Appl. Cryst. (2019).",
+        usage="python analyzer_tools/experiment_optimizer.py <model_name> --param <parameter> --values <val1,val2,val3>",
+        examples=[
+            "python analyzer_tools/experiment_optimizer.py cu_thf --param sld_solvent --values -0.5,0,2,4,6.5",
+            "python analyzer_tools/experiment_optimizer.py cu_thf --param Cu thickness --values 400,500,600,700,800 --method mvn",
+            "python analyzer_tools/experiment_optimizer.py cu_thf --param counting_time --values 0.5,1,2,4,8 --realizations 5"
+        ],
+        data_type="combined"
     )
 }
 
@@ -120,6 +133,19 @@ WORKFLOWS = {
             "5. Identify sensitive parameters and optimal ranges"
         ],
         "tools": ["run_fit", "result_assessor", "create_temporary_model"]
+    },
+    
+    "experimental_optimization": {
+        "name": "Experimental Design Optimization",
+        "description": "Optimize experimental parameters using information theory",
+        "steps": [
+            "1. Define your model and reasonable parameter priors",
+            "2. Use experiment_optimizer to test different experimental conditions",
+            "3. Analyze information gain vs. parameter plots",
+            "4. Identify optimal experimental conditions",
+            "5. Plan real experiments using optimized parameters"
+        ],
+        "tools": ["experiment_optimizer"]
     }
 }
 

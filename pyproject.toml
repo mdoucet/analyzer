@@ -29,6 +29,9 @@ dependencies = [
     "matplotlib",
     "refl1d==1.0.0b0",
     "configparser",
+    "pydantic",
+    "tqdm",
+    "click",
 ]
 
 [project.optional-dependencies]
@@ -60,14 +63,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --cov=analyzer_tools --cov-fail-under=40"
 
 [tool.coverage.run]
 source = ["analyzer_tools"]
 omit = ["*/tests/*", "*/test_*"]
 
 [tool.coverage.report]
-fail_under = 0
+fail_under = 20
 show_missing = true
 skip_covered = false
 
