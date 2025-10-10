@@ -52,6 +52,7 @@ def make_report(json_file="optimization_results.json", output_dir="planner_repor
                 label=f"Simulation {j + 1}",
             )
             if j == 0:
+                # TODO: This should be best fit instead
                 plt.plot(data["q_values"], data["reflectivity"], label="True")
             chi2 = np.average(
                 (

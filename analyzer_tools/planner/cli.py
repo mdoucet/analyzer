@@ -14,6 +14,7 @@ from analyzer_tools.planner.report import make_report, evaluate_alternate_model
 from ..utils.model_utils import expt_from_model_file
 from .experiment_design import ExperimentDesigner
 from . import instrument
+from . import optimizer
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -150,7 +151,8 @@ def optimize(
         click.echo("\nRunning optimization...")
 
         if parallel:
-            results, simulated_data = designer.optimize_parallel(
+            results, simulated_data = optimizer.optimize_parallel(
+                designer,
                 param_to_optimize=param,
                 param_values=param_vals,
                 realizations=num_realizations,
@@ -158,7 +160,8 @@ def optimize(
                 entropy_method=entropy_method,
             )
         else:
-            results, simulated_data = designer.optimize(
+            results, simulated_data = optimizer.optimize(
+                designer,
                 param_to_optimize=param,
                 param_values=param_vals,
                 realizations=num_realizations,

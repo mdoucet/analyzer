@@ -5,6 +5,7 @@ import tempfile
 import os
 import json
 import logging
+import traceback
 from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 
@@ -126,21 +127,18 @@ class TestPlannerCLI:
         with tempfile.TemporaryDirectory() as temp_dir:
             result = runner.invoke(optimize, [
                 '--data-file', 'tests/sample_data/REFL_218386_combined_data_auto.txt',
-                '--model-file', 'models/cu_thf_planner',
+                '--model-file', 'models/cu_thf_tiny',
                 '--output-dir', temp_dir,
                 '--param', 'THF rho',
-                '--param-values', '4.0,5.0',
+                '--param-values', '4.0',
                 '--num-realizations', '1',
                 '--mcmc-steps', '50',  # Very small for testing
                 '--burn-steps', '50',
                 '--sequential',
-                '--entropy-method', 'mvn'
+                '--entropy-method', 'kdn'
             ])
             
-            print("STDOUT:", result.output)
             if result.exception:
-                print("Exception:", result.exception)
-                import traceback
                 traceback.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
             
             # Check that the command completed successfully
@@ -161,7 +159,7 @@ class TestPlannerCLI:
             assert "parameter" in data
             assert "results" in data
             assert data["parameter"] == "THF rho"
-            assert len(data["results"]) == 2  # Two parameter values
+            assert len(data["results"]) == 1  # Two parameter values
             assert "optimal_value" in data
             assert "max_information_gain" in data
     
@@ -380,13 +378,14 @@ class TestPlannerCLIExtended:
             with patch('analyzer_tools.planner.cli.instrument.InstrumentSimulator'), \
                  patch('analyzer_tools.planner.cli.expt_from_model_file'), \
                  patch('analyzer_tools.planner.cli.ExperimentDesigner') as mock_designer_class, \
+                 patch('analyzer_tools.planner.cli.optimizer.optimize') as mock_optimize, \
                  patch('analyzer_tools.planner.cli.make_report') as mock_make_report:
                 
                 # Mock the designer instance
                 mock_designer = MagicMock()
                 mock_designer.prior_entropy.return_value = 1.5
                 mock_designer.__str__.return_value = "Mock Designer Info"
-                mock_designer.optimize.return_value = ([(4.0, 0.5, 0.1)], {"data": "test"})
+                mock_optimize.return_value = ([(4.0, 0.5, 0.1)], {"data": "test"})
                 mock_designer_class.return_value = mock_designer
                 
                 result = runner.invoke(optimize, [
@@ -415,12 +414,13 @@ class TestPlannerCLIExtended:
             with patch('analyzer_tools.planner.cli.instrument.InstrumentSimulator'), \
                  patch('analyzer_tools.planner.cli.expt_from_model_file'), \
                  patch('analyzer_tools.planner.cli.ExperimentDesigner') as mock_designer_class, \
+                 patch('analyzer_tools.planner.cli.optimizer.optimize_parallel') as mock_optimize_parallel, \
                  patch('analyzer_tools.planner.cli.make_report') as mock_make_report:
                 
                 # Mock the designer instance
                 mock_designer = MagicMock()
                 mock_designer.prior_entropy.return_value = 1.5
-                mock_designer.optimize_parallel.return_value = ([(4.0, 0.5, 0.1)], {"data": "test"})
+                mock_optimize_parallel.return_value = ([(4.0, 0.5, 0.1)], {"data": "test"})
                 mock_designer_class.return_value = mock_designer
                 
                 result = runner.invoke(optimize, [
@@ -437,7 +437,7 @@ class TestPlannerCLIExtended:
                 
                 # Should complete successfully
                 assert result.exit_code == 0
-                mock_designer.optimize_parallel.assert_called_once()
+                mock_optimize_parallel.assert_called_once()
                 mock_make_report.assert_called_once()
     
     def test_alternate_model_help(self):

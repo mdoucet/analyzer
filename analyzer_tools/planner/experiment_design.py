@@ -12,13 +12,9 @@ import logging
 from pydantic import BaseModel
 from scipy.stats import gaussian_kde, multivariate_normal
 
-from bumps.fitters import fit
-from refl1d.names import Experiment, FitProblem, Parameter, QProbe
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from tqdm import tqdm
+from refl1d.names import Experiment, FitProblem, Parameter
 
 from . import instrument
-from ..utils.model_utils import get_sld_contour
 
 logger = logging.getLogger(__name__)
 
@@ -34,96 +30,31 @@ class SampleParameter(BaseModel):
 
 
 class ExperimentRealization(BaseModel):
+    # Input parameters
+    param_to_optimize: str = ""
+    param_value: float = 0
+
+    # Metrics
+    chi2: float = 0
+    posterior_entropy: float = 0
+    # Entropy of the marginal distribution of each parameter
+    marginal_entropy: List[float] = []
+    evidence: float = 0
+
+    # Distributions
     q_values: List[float]
     dq_values: List[float]
     reflectivity: List[float]
     noisy_reflectivity: List[float]
     errors: List[float]
+    fit_reflectivity: Optional[List[float]] = None
+
+    # SLD profile
     z: List[float]
     sld_best: List[float]
     # 90% CL
     sld_low: List[float]
     sld_high: List[float]
-    posterior_entropy: float = 0
-    # Entropy of the marginal distribution of each parameter
-    marginal_entropy: List[float] = None
-
-
-def evaluate_param(
-    experiment_designer: "ExperimentDesigner",
-    param_to_optimize: str,
-    value: float,
-    realizations: int,
-    prior_entropy: float,
-    mcmc_steps: int,
-    entropy_method: str,
-):
-    experiment_designer.set_parameter_to_optimize(param_to_optimize, value)
-    experiment_designer.problem.summarize()
-
-    # z, sld, _ = experiment_designer.experiment.smooth_profile()
-    q_values, r_calc = experiment_designer.experiment.reflectivity()
-
-    realization_gains = []
-    realization_data = []
-    for _ in range(realizations):
-        try:
-            noisy_reflectivity, errors = experiment_designer.simulator.add_noise(r_calc)
-
-            mcmc_result = experiment_designer.perform_mcmc(
-                q_values,
-                noisy_reflectivity,
-                errors,
-                dq_values=experiment_designer.simulator.dq_values,
-                mcmc_steps=mcmc_steps,
-            )
-            mcmc_samples = mcmc_result.state.draw().points
-
-            marginal_samples = experiment_designer._extract_marginal_samples(
-                mcmc_samples
-            )
-
-            posterior_entropy = experiment_designer._calculate_posterior_entropy(
-                marginal_samples, method=entropy_method
-            )
-            info_gain = prior_entropy - posterior_entropy
-            realization_gains.append(info_gain)
-
-            z, best, low, high = get_sld_contour(
-                experiment_designer.problem,
-                mcmc_result.state,
-                cl=90,
-                npoints=200,
-                index=1,
-                align=-1,
-            )[0]
-
-            best_p, _ = mcmc_result.state.best()
-            experiment_designer.problem.setp(best_p)
-
-            _, reflectivity = experiment_designer.experiment.reflectivity()
-
-            realization = ExperimentRealization(
-                q_values=q_values,
-                dq_values=experiment_designer.simulator.dq_values,
-                reflectivity=reflectivity,
-                noisy_reflectivity=noisy_reflectivity,
-                errors=errors,
-                z=z,
-                sld_best=best,
-                sld_low=low,
-                sld_high=high,
-                posterior_entropy=posterior_entropy,
-            )
-            realization_data.append(realization.model_dump(mode="json"))
-
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            realization_gains.append(0.0)
-
-    avg_info_gain = np.mean(realization_gains)
-    std_info_gain = np.std(realization_gains)
-    return value, avg_info_gain, std_info_gain, realization_data
 
 
 class ExperimentDesigner:
@@ -278,46 +209,6 @@ class ExperimentDesigner:
             H_prior += p.h_prior
         return H_prior
 
-    def perform_mcmc(
-        self,
-        q_values: np.ndarray,
-        noisy_reflectivity: np.ndarray,
-        errors: np.ndarray,
-        dq_values: np.ndarray,
-        mcmc_steps: int = 1000,
-        burn_steps: int = 1000,
-    ) -> Tuple[np.ndarray, List[str]]:
-        """
-        Perform MCMC analysis using refl1d/bumps.
-
-        Args:
-            q_values: Q values
-            noisy_reflectivity: Noisy reflectivity data
-            errors: Error bars
-            mcmc_steps: Number of MCMC steps
-            burn_steps: Number of burn-in steps
-            dq_values: Q resolution values
-        Returns:
-            Tuple of (2D numpy array of MCMC samples, list of parameter names)
-        """
-        # Prepare FitProblem
-
-        probe = QProbe(q_values, dq_values, R=noisy_reflectivity, dR=errors)
-        expt = Experiment(sample=self.experiment.sample, probe=probe)
-        problem = FitProblem(expt)
-        problem.model_update()
-
-        # Run DREAM sampler
-        result = fit(
-            problem, method="dream", samples=mcmc_steps, burn=burn_steps, verbose=0
-        )
-
-        # Analyze the fit state and save values
-        result.state.keep_best()
-        result.state.mark_outliers()
-
-        return result
-
     def _extract_marginal_samples(
         self,
         mcmc_samples: np.ndarray,
@@ -433,165 +324,3 @@ class ExperimentDesigner:
             return self._calculate_posterior_entropy_kdn(mcmc_samples)
         else:
             raise ValueError("Invalid entropy method. Choose 'mvn' or 'kdn'.")
-
-    def optimize_parallel(
-        self,
-        param_to_optimize: str,
-        param_values: list,
-        realizations: int = 3,
-        mcmc_steps: int = 2000,
-        entropy_method: str = "kdn",
-    ) -> Tuple[List[Tuple[float, float, float]], List[List[Dict]]]:
-        """
-        Optimize the experimental design by evaluating the expected information gain
-        for different parameter values.
-
-        Parameters
-        ----------
-        param_to_optimize : str
-            The name of the parameter to optimize.
-        param_values : list
-            A list of parameter values to evaluate.
-        realizations : int, optional
-            Number of noise realizations to simulate (default is 3).
-        mcmc_steps : int, optional
-            Number of MCMC steps for posterior sampling (default is 2000).
-        entropy_method : str, optional
-            Method for entropy calculation ('mvn' or 'kdn', default is 'mvn').
-
-        Returns:
-            List of (parameter_value, information_gain, std_info_gain) tuples and list of simulated data
-        """
-        results = []
-        simulated_data = []
-        prior_entropy = self.prior_entropy()
-
-        logger.info(f"Starting optimization for parameter: {param_to_optimize}")
-        logger.info(f"Prior Entropy: {prior_entropy:.4f} bits")
-        logger.info(
-            f"Testing {len(param_values)} values with {realizations} realizations each"
-        )
-        logger.info(f"Method: {entropy_method}, MCMC steps: {mcmc_steps}")
-
-        if param_to_optimize not in self.all_model_parameters:
-            raise ValueError(
-                f"Parameter {param_to_optimize} not found in model parameters"
-            )
-
-        with ProcessPoolExecutor() as executor:
-            future_to_value = {
-                executor.submit(
-                    evaluate_param,
-                    self,
-                    param_to_optimize,
-                    value,
-                    realizations,
-                    prior_entropy,
-                    mcmc_steps,
-                    entropy_method,
-                ): value
-                for value in param_values
-            }
-
-            for future in tqdm(
-                as_completed(future_to_value),
-                total=len(param_values),
-                desc="Optimizing",
-                unit="val",
-            ):
-                value = future_to_value[future]
-                try:
-                    result_value, avg_info_gain, std_info_gain, realization_data = (
-                        future.result()
-                    )
-                    results.append((result_value, avg_info_gain, std_info_gain))
-                    simulated_data.append(realization_data)
-                    logger.info(
-                        f"Value {result_value}: ΔH = {avg_info_gain:.4f} ± {std_info_gain:.4f} bits"
-                    )
-                except Exception as e:
-                    logger.error(f"Error evaluating value {value}: {e}")
-
-        # Ensure ordered_results includes [value, avg_gain, std_gain]
-        value_to_result = {result[0]: result for result in results}
-        ordered_results = [
-            [value, value_to_result[value][1], value_to_result[value][2]]
-            for value in param_values
-        ]
-
-        # Sort simulated data to match the order of param_values
-        value_to_data = {
-            result[0]: data for result, data in zip(results, simulated_data)
-        }
-        ordered_simulated_data = [value_to_data[value] for value in param_values]
-
-        return ordered_results, ordered_simulated_data
-
-    def optimize(
-        self,
-        param_to_optimize: str,
-        param_values: list,
-        realizations: int = 3,
-        mcmc_steps: int = 2000,
-        entropy_method: str = "kdn",
-    ) -> Tuple[List[Tuple[float, float, float]], List[List[Dict]]]:
-        """
-        Optimize the experimental design sequentially by evaluating the expected information gain
-        for different parameter values.
-
-        Parameters
-        ----------
-        param_to_optimize : str
-            The name of the parameter to optimize.
-        param_values : list
-            A list of parameter values to evaluate.
-        realizations : int, optional
-            Number of noise realizations to simulate (default is 3).
-        mcmc_steps : int, optional
-            Number of MCMC steps for posterior sampling (default is 2000).
-        entropy_method : str, optional
-            Method for entropy calculation ('mvn' or 'kdn', default is 'mvn').
-
-        Returns:
-            List of (parameter_value, information_gain, std_info_gain) tuples and list of simulated data
-        """
-        results = []
-        simulated_data = []
-        prior_entropy = self.prior_entropy()
-
-        logger.info(
-            f"Starting sequential optimization for parameter: {param_to_optimize}"
-        )
-        logger.info(f"Prior Entropy: {prior_entropy:.4f} bits")
-        logger.info(
-            f"Testing {len(param_values)} values with {realizations} realizations each"
-        )
-        logger.info(f"Method: {entropy_method}, MCMC steps: {mcmc_steps}")
-
-        if param_to_optimize not in self.all_model_parameters:
-            raise ValueError(
-                f"Parameter {param_to_optimize} not found in model parameters"
-            )
-
-        for value in tqdm(param_values, desc="Optimizing", unit="val"):
-            try:
-                result_value, avg_info_gain, std_info_gain, realization_data = (
-                    evaluate_param(
-                        self,
-                        param_to_optimize,
-                        value,
-                        realizations,
-                        prior_entropy,
-                        mcmc_steps,
-                        entropy_method,
-                    )
-                )
-                results.append((result_value, avg_info_gain, std_info_gain))
-                simulated_data.append(realization_data)
-                logger.info(
-                    f"Value {result_value}: ΔH = {avg_info_gain:.4f} ± {std_info_gain:.4f} bits"
-                )
-            except Exception as e:
-                logger.error(f"Error evaluating value {value}: {e}")
-
-        return results, simulated_data

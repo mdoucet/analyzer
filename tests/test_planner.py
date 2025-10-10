@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from analyzer_tools.utils.model_utils import expt_from_model_file
 from analyzer_tools.planner.experiment_design import ExperimentDesigner
-from analyzer_tools.planner import instrument
+from analyzer_tools.planner import instrument, optimizer
 
 
 class TestExperimentDesigner:
@@ -31,7 +31,9 @@ class TestExperimentDesigner:
     @pytest.fixture
     def designer(self, basic_experiment):
         """Create an ExperimentDesigner instance."""
-        simulator = instrument.InstrumentSimulator(q_values=np.logspace(np.log10(0.008), np.log10(0.2), 10))
+        simulator = instrument.InstrumentSimulator(
+            q_values=np.logspace(np.log10(0.008), np.log10(0.2), 10)
+        )
         return ExperimentDesigner(basic_experiment, simulator=simulator)
 
     def test_experiment_designer_initialization(self, designer):
@@ -93,8 +95,8 @@ class TestExperimentDesigner:
         designer.set_parameter_to_optimize("THF rho", 5.0)
 
         # With empty param_values, should return empty results
-        results, _ = designer.optimize(
-            param_to_optimize="THF rho", param_values=[], realizations=1
+        results, _ = optimizer.optimize(
+            designer, param_to_optimize="THF rho", param_values=[], realizations=1
         )
 
         # Should return empty list
@@ -103,7 +105,8 @@ class TestExperimentDesigner:
     def test_optimize_edge_case_invalid_parameter(self, designer):
         """Test optimize method with invalid parameter to optimize."""
         with pytest.raises(ValueError):
-            designer.optimize(
+            optimizer.optimize(
+                designer,
                 param_to_optimize="INVALID_PARAM",
                 param_values=[1.0, 2.0],
                 realizations=1,
@@ -114,8 +117,11 @@ class TestExperimentDesigner:
         designer.set_parameter_to_optimize("THF rho", 5.0)
 
         # With zero realizations, should complete but return NaN values
-        results, simulated_data = designer.optimize(
-            param_to_optimize="THF rho", param_values=[1.0, 2.0], realizations=0
+        results, simulated_data = optimizer.optimize(
+            designer,
+            param_to_optimize="THF rho",
+            param_values=[1.0, 2.0],
+            realizations=0,
         )
 
         # Should return results but with NaN information gain
@@ -133,7 +139,8 @@ class TestExperimentDesigner:
         designer.set_parameter_to_optimize("THF rho", 5.0)
 
         # Run optimization with minimal parameters for speed
-        results, simulated_data = designer.optimize(
+        results, simulated_data = optimizer.optimize(
+            designer,
             param_to_optimize="THF rho",
             param_values=[4.5, 5.0],
             realizations=1,  # Minimal realizations for test speed
