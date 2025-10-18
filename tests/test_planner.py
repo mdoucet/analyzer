@@ -164,7 +164,7 @@ class TestExptFromModelFile:
         """Test that expt_from_model_file works with valid input."""
         q_values = np.array([0.01, 0.05, 0.1])
         dq_values = q_values * 0.025
-        model_name = "models/cu_thf_planner"
+        model_name = "models/cu_thf_tiny"
 
         experiment = expt_from_model_file(model_name, q_values, dq_values)
         assert experiment is not None
@@ -183,7 +183,7 @@ class TestExptFromModelFile:
         """Test error handling for empty q_values array."""
         q_values = np.array([])
         dq_values = np.array([])
-        model_name = "models/cu_thf_planner"
+        model_name = "models/cu_thf_tiny"
 
         # This should raise an error or handle gracefully
         # The exact error depends on the downstream refl1d implementation
@@ -194,7 +194,7 @@ class TestExptFromModelFile:
         """Test error handling for q_values and dq_values of different lengths."""
         q_values = np.array([0.01, 0.05])
         dq_values = np.array([0.001])  # Different length
-        model_name = "models/cu_thf_planner"
+        model_name = "models/cu_thf_tiny"
 
         # The current implementation may handle this gracefully by broadcasting
         # or it may raise an error - test what actually happens
@@ -214,7 +214,7 @@ class TestExptFromModelFile:
         dq_values = q_values * 0.025
         reflectivity = np.array([1.0, 0.5, 0.1])
         errors = np.array([0.01, 0.01, 0.01])
-        model_name = "models/cu_thf_planner"
+        model_name = "models/cu_thf_tiny"
 
         experiment = expt_from_model_file(
             model_name, q_values, dq_values, reflectivity, errors
@@ -235,7 +235,7 @@ class TestPlannerIntegration:
         q_values = np.logspace(np.log10(0.008), np.log10(0.2), 5)  # Smaller for speed
         dq_values = q_values * 0.025
 
-        model_name = "models/cu_thf_planner"
+        model_name = "models/cu_thf_tiny"
         experiment = expt_from_model_file(model_name, q_values, dq_values)
 
         # Create designer
