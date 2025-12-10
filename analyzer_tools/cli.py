@@ -53,6 +53,24 @@ def result_assessor_cli():
     main()
 
 
+def eis_timing_extractor_cli():
+    """Command-line interface for EIS timing extractor."""
+    from .eis_timing_extractor import main
+    main()
+
+
+def mantid_event_splitter_cli():
+    """Command-line interface for Mantid event splitter."""
+    from .mantid_event_splitter import main
+    main()
+
+
+def eis_measurement_splitter_cli():
+    """Command-line interface for EIS measurement-based event splitter."""
+    from .eis_measurement_splitter import main
+    main()
+
+
 def main():
     """Main CLI entry point with tool discovery."""
     # Import here to avoid circular imports and allow standalone execution

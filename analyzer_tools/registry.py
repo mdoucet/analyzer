@@ -92,6 +92,45 @@ TOOLS = {
             "python analyzer_tools/experiment_optimizer.py cu_thf --param counting_time --values 0.5,1,2,4,8 --realizations 5"
         ],
         data_type="combined"
+    ),
+    
+    "eis_timing_extractor": ToolInfo(
+        name="EIS Timing Extractor",
+        module="analyzer_tools.eis_timing_extractor",
+        description="Extract timing information from EIS (Electrochemical Impedance Spectroscopy) .mpt files. Computes cumulative time and wall clock times for each measurement point.",
+        usage="python analyzer_tools/eis_timing_extractor.py --data-dir <path> --output-dir <path>",
+        examples=[
+            "python analyzer_tools/eis_timing_extractor.py --file data.mpt --output timing.csv",
+            "python analyzer_tools/eis_timing_extractor.py --data-dir /path/to/ec-data --output-dir ./output",
+            "python analyzer_tools/eis_timing_extractor.py --data-dir /path/to/ec-data --pattern '*C02_*.mpt' --boundaries"
+        ],
+        data_type="both"
+    ),
+    
+    "mantid_event_splitter": ToolInfo(
+        name="Mantid Event Splitter",
+        module="analyzer_tools.mantid_event_splitter",
+        description="Generate Mantid Python scripts to split neutron event data based on EIS timing intervals. Creates standalone scripts for execution in Mantid environments.",
+        usage="python analyzer_tools/mantid_event_splitter.py --timing-file <path> --event-file <path> --output-script <path>",
+        examples=[
+            "python analyzer_tools/mantid_event_splitter.py -t timing.csv -e events.h5 -o filter.py",
+            "python analyzer_tools/mantid_event_splitter.py -t timing.csv -e events.h5 -o filter.py --prefix my_experiment",
+            "python analyzer_tools/mantid_event_splitter.py -t timing.csv -e events.h5 -o filter.py --relative"
+        ],
+        data_type="both"
+    ),
+    
+    "eis_measurement_splitter": ToolInfo(
+        name="EIS Measurement-Based Event Splitter",
+        module="analyzer_tools.eis_measurement_splitter",
+        description="Generate Mantid Python scripts to split neutron event data based on complete EIS measurement intervals. Each EIS file becomes one time interval from acquisition start to measurement completion.",
+        usage="python analyzer_tools/eis_measurement_splitter.py --data-dir <path> --event-file <path> --output-script <path>",
+        examples=[
+            "python analyzer_tools/eis_measurement_splitter.py --data-dir /path/to/eis --event-file events.h5 --output-script filter.py",
+            "python analyzer_tools/eis_measurement_splitter.py --data-dir /path/to/eis --event-file events.h5 --output-script filter.py --relative",
+            "python analyzer_tools/eis_measurement_splitter.py --data-dir /path/to/eis --event-file events.h5 --output-script filter.py --pattern '*C02_*.mpt'"
+        ],
+        data_type="both"
     )
 }
 
@@ -146,6 +185,20 @@ WORKFLOWS = {
             "5. Plan real experiments using optimized parameters"
         ],
         "tools": ["experiment_optimizer"]
+    },
+    
+    "time_resolved_eis": {
+        "name": "Time-Resolved EIS/Neutron Correlation",
+        "description": "Correlate EIS measurements with neutron scattering events for time-resolved analysis",
+        "steps": [
+            "1. Use eis_timing_extractor to extract timing from EIS .mpt files",
+            "2. Review timing boundaries and verify data quality",
+            "3. Option A: Use mantid_event_splitter to split by individual frequency measurements",
+            "4. Option B: Use eis_measurement_splitter to split by complete EIS measurement intervals",
+            "5. Execute the generated script in a Mantid environment",
+            "6. Analyze time-sliced neutron data corresponding to EIS measurements"
+        ],
+        "tools": ["eis_timing_extractor", "mantid_event_splitter", "eis_measurement_splitter"]
     }
 }
 
