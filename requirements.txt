@@ -7,3 +7,4 @@ pytest-cov
 pydantic
 tqdm
 click
+scipy

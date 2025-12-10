@@ -32,6 +32,7 @@ dependencies = [
     "pydantic",
     "tqdm",
     "click",
+    "scipy",
 ]
 
 [project.optional-dependencies]
@@ -50,9 +51,7 @@ Repository = "https://github.com/your-org/analyzer"
 run-fit = "analyzer_tools.cli:run_fit_cli"
 assess-partial = "analyzer_tools.cli:assess_partial_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
-eis-timing = "analyzer_tools.cli:eis_timing_extractor_cli"
-mantid-splitter = "analyzer_tools.cli:mantid_event_splitter_cli"
-eis-measurement-splitter = "analyzer_tools.cli:eis_measurement_splitter_cli"
+eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
