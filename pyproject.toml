@@ -28,7 +28,7 @@ dependencies = [
     "numpy",
     "matplotlib",
     "refl1d==1.0.0b0",
-    "configparser",
+    "bumps",
     "pydantic",
     "tqdm",
     "click",
@@ -47,10 +47,13 @@ Homepage = "https://github.com/your-org/analyzer"
 Repository = "https://github.com/your-org/analyzer"
 
 [project.scripts]
+analyzer-tools = "analyzer_tools.cli:main"
 run-fit = "analyzer_tools.cli:run_fit_cli"
 assess-partial = "analyzer_tools.cli:assess_partial_cli"
+assess-result = "analyzer_tools.cli:result_assessor_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
 eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
+analyzer-planner = "analyzer_tools.planner.cli:main"
 analyzer-mcp = "analyzer_tools.mcp_server:main"
 
 [tool.setuptools.packages.find]

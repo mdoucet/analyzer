@@ -1,11 +1,14 @@
-configparser
+# Core dependencies
 numpy
 matplotlib
 refl1d==1.0.0b0
-pytest
-pytest-cov
+bumps
 pydantic
 tqdm
 click
 scipy
 fastmcp
+
+# Development dependencies should be installed via:
+# pip install -e .[dev]
+# which includes: pytest, pytest-cov

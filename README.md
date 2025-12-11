@@ -73,23 +73,24 @@ This will show you all available tools and help you get started!
 
 | Tool | Purpose | Example Usage |
 |------|---------|---------------|
-| **Partial Data Assessor** | Check quality of partial data | `python analyzer_tools/partial_data_assessor.py 218281` |
-| **Fit Runner** | Fit data to models | `python analyzer_tools/run_fit.py 218281 cu_thf` |
-| **Result Assessor** | Evaluate fit quality | `python analyzer_tools/result_assessor.py 218281 cu_thf` |
-| **Model Creator** | Generate fit scripts | `python analyzer_tools/create_model_script.py cu_thf data.txt` |
-| **Temporary Models** | Adjust model parameters | `python analyzer_tools/create_temporary_model.py cu_thf cu_thf_temp --adjust Cu thickness 500,800` |
+| **Partial Data Assessor** | Check quality of partial data | `assess-partial 218281` |
+| **Fit Runner** | Fit data to models | `run-fit 218281 cu_thf` |
+| **Result Assessor** | Evaluate fit quality | `assess-result results/ 218281 cu_thf` |
+| **Model Creator** | Generate fit scripts | `create-model cu_thf data.txt` |
+| **Experiment Planner** | Optimize experimental parameters | `analyzer-planner optimize --help` |
+| **EIS Interval Extractor** | Extract EIS timing intervals | `eis-intervals --data-dir /path/to/eis` |
 
 ### 💡 Get Help Anytime
 
 ```bash
 # List all tools
-python analyzer_tools/cli.py --list-tools
+analyzer-tools --list-tools
 
 # Get help for specific tool  
-python analyzer_tools/cli.py --help-tool partial
+analyzer-tools --help-tool partial
 
 # Show analysis workflows
-python analyzer_tools/cli.py --workflows
+analyzer-tools --workflows
 
 # Interactive tool selection
 python -c "from analyzer_tools.welcome import help_me_choose; help_me_choose()"
@@ -150,10 +151,10 @@ open reports/report_218281.md
 ### 2. Standard Fitting Workflow
 ```bash
 # 1. Run the fit
-python analyzer_tools/run_fit.py 218281 cu_thf
+run-fit 218281 cu_thf
 
 # 2. Assess results
-python analyzer_tools/result_assessor.py 218281 cu_thf
+assess-result results/ 218281 cu_thf
 
 # 3. Check reports directory for results
 ls reports/
@@ -161,14 +162,14 @@ ls reports/
 
 ### 3. Parameter Exploration
 ```bash
-# 1. Create model variant
-python analyzer_tools/create_temporary_model.py cu_thf cu_thf_wide --adjust Cu thickness 300,1000
+# 1. Create model variant (note: quote the parameter adjustment)
+python -m analyzer_tools.create_temporary_model cu_thf cu_thf_wide --adjust 'Cu thickness 300,1000'
 
 # 2. Test with new parameters
-python analyzer_tools/run_fit.py 218281 cu_thf_wide
+run-fit 218281 cu_thf_wide
 
 # 3. Compare results
-python analyzer_tools/result_assessor.py 218281 cu_thf_wide
+assess-result results/ 218281 cu_thf_wide
 ```
 
 ## ⚙️ Configuration
@@ -227,11 +228,77 @@ This repository is designed to work seamlessly with AI assistants. The tool regi
 from analyzer_tools.registry import get_all_tools, get_workflows, print_tool_overview
 ```
 
+### 🔌 Claude Desktop MCP Server Setup
+
+This package includes an MCP (Model Context Protocol) server that allows Claude Desktop to directly call the analysis tools. To set this up:
+
+**1. Install the package and dependencies:**
+```bash
+cd /path/to/analyzer
+pip install -e .
+pip install fastmcp
+```
+
+**2. Locate your Claude Desktop configuration file:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**3. Add the analyzer-tools server configuration:**
+
+Edit the config file and add (or merge with existing) the following:
+
+```json
+{
+  "mcpServers": {
+    "analyzer-tools": {
+      "command": "fastmcp",
+      "args": ["run", "analyzer_tools/mcp_server.py"],
+      "cwd": "/path/to/analyzer",
+      "env": {
+        "PYTHONPATH": "/path/to/analyzer"
+      }
+    }
+  }
+}
+```
+
+> ⚠️ **Important**: Replace `/path/to/analyzer` with the actual absolute path to this repository on your system.
+
+**4. Restart Claude Desktop**
+
+After restarting, Claude will have access to the following tools:
+- `run_fit` - Run reflectivity fits on data
+- `assess_partial_data` - Assess partial data quality
+- `extract_eis_intervals` - Extract EIS timing intervals
+- `list_available_data` - List available data sets
+- `list_available_models` - List available fitting models
+- `get_tool_help` - Get help for specific tools
+- `list_tools` - List all available tools
+
+**5. Test the integration:**
+
+In Claude Desktop, you can now ask:
+- "List the available neutron reflectometry tools"
+- "What data sets are available for analysis?"
+- "Run a fit on data set 218281 using the cu_thf model"
+
+**Alternative: Run MCP server manually for testing:**
+```bash
+# Using the entry point
+analyzer-mcp
+
+# Or using fastmcp directly
+fastmcp run analyzer_tools/mcp_server.py
+
+# Or as a Python module
+python -m analyzer_tools.mcp_server
+```
+
 ## 🆘 Getting Help
 
-- **Tool overview**: `python analyzer_tools/cli.py`
-- **Specific tool help**: `python analyzer_tools/cli.py --help-tool <tool_name>`
-- **Workflows**: `python analyzer_tools/cli.py --workflows`
+- **Tool overview**: `analyzer-tools` or `analyzer-tools --list-tools`
+- **Specific tool help**: `analyzer-tools --help-tool <tool_name>`
+- **Workflows**: `analyzer-tools --workflows`
 - **Interactive selection**: `python -c "from analyzer_tools.welcome import help_me_choose; help_me_choose()"`
 - **Developer notes**: See `docs/developer_notes.md`
 
