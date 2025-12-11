@@ -78,7 +78,7 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
         filepath: Path to the .mpt file
         
     Returns:
-        List of dictionaries with timing for each frequency measurement
+        List of dictionaries with timing, Ewe, and impedance data for each frequency measurement
     """
     header_info = parse_mpt_header(filepath)
     
@@ -93,8 +93,30 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
     time_idx = column_names.index('time/s') if 'time/s' in column_names else 5
     freq_idx = 0  # freq/Hz is typically first column
     
+    # Helper function to find column index by name
+    def find_column(name: str) -> Optional[int]:
+        for i, col in enumerate(column_names):
+            if col.strip() == name:
+                return i
+        return None
+    
+    # Find column indices for EIS data
+    ewe_idx = find_column('<Ewe>/V')
+    z_idx = find_column('|Z|/Ohm')
+    im_z_idx = find_column('Im(Z)/Ohm')
+    phase_idx = find_column('Phase(Z)/deg')
+    
     measurements = []
     data_lines = lines[header_info['num_header_lines']:]
+    
+    def safe_float(parts: List[str], idx: Optional[int]) -> Optional[float]:
+        """Safely extract a float value from parts list."""
+        if idx is None or idx >= len(parts):
+            return None
+        try:
+            return float(parts[idx])
+        except ValueError:
+            return None
     
     for line in data_lines:
         line = line.strip()
@@ -113,7 +135,11 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
             measurements.append({
                 'frequency_hz': freq_hz,
                 'time_seconds': time_s,
-                'wall_clock': wall_clock
+                'wall_clock': wall_clock,
+                'ewe_v': safe_float(parts, ewe_idx),
+                'z_ohm': safe_float(parts, z_idx),
+                'im_z_ohm': safe_float(parts, im_z_idx),
+                'phase_deg': safe_float(parts, phase_idx)
             })
         except (ValueError, IndexError):
             continue
@@ -173,18 +199,28 @@ def extract_per_file_intervals(
             end_time = measurements[-1]['wall_clock']
             duration = (end_time - start_time).total_seconds()
             
+            # Calculate average Ewe from all measurements
+            ewe_values = [m['ewe_v'] for m in measurements if m['ewe_v'] is not None]
+            avg_ewe = sum(ewe_values) / len(ewe_values) if ewe_values else None
+            
             if verbose:
                 print(f"  Start: {start_time.isoformat()}")
                 print(f"  End: {end_time.isoformat()}")
                 print(f"  Duration: {duration:.2f}s, {len(measurements)} frequencies")
+                if avg_ewe is not None:
+                    print(f"  Avg <Ewe>: {avg_ewe:.4f} V")
             
-            intervals.append({
+            interval_data = {
                 'filename': filename,
                 'start': start_time.isoformat(),
                 'end': end_time.isoformat(),
                 'duration_seconds': duration,
                 'n_frequencies': len(measurements)
-            })
+            }
+            if avg_ewe is not None:
+                interval_data['avg_ewe_v'] = avg_ewe
+            
+            intervals.append(interval_data)
             
         except Exception as e:
             if verbose:
@@ -244,14 +280,27 @@ def extract_per_frequency_intervals(
                 end = measurements[i + 1]['wall_clock']
                 duration = (end - start).total_seconds()
                 
-                intervals.append({
+                interval_data = {
                     'filename': filename,
                     'frequency_hz': measurements[i]['frequency_hz'],
                     'measurement_index': i,
                     'start': start.isoformat(),
                     'end': end.isoformat(),
                     'duration_seconds': duration
-                })
+                }
+                
+                # Add EIS data if available
+                m = measurements[i]
+                if m['ewe_v'] is not None:
+                    interval_data['ewe_v'] = m['ewe_v']
+                if m['z_ohm'] is not None:
+                    interval_data['z_ohm'] = m['z_ohm']
+                if m['im_z_ohm'] is not None:
+                    interval_data['im_z_ohm'] = m['im_z_ohm']
+                if m['phase_deg'] is not None:
+                    interval_data['phase_deg'] = m['phase_deg']
+                
+                intervals.append(interval_data)
             
         except Exception as e:
             if verbose:
