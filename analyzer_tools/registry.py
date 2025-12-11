@@ -165,14 +165,13 @@ WORKFLOWS = {
         "name": "Time-Resolved EIS/Neutron Correlation",
         "description": "Correlate EIS measurements with neutron scattering events for time-resolved analysis",
         "steps": [
-            "1. Use eis_timing_extractor to extract timing from EIS .mpt files",
+            "1. Use eis_interval_extractor to extract timing from EIS .mpt files",
             "2. Review timing boundaries and verify data quality",
-            "3. Option A: Use mantid_event_splitter to split by individual frequency measurements",
-            "4. Option B: Use eis_measurement_splitter to split by complete EIS measurement intervals",
-            "5. Execute the generated script in a Mantid environment",
-            "6. Analyze time-sliced neutron data corresponding to EIS measurements"
+            "3. Copy intervals JSON and Mantid scripts to cluster",
+            "4. Execute eis_filter_events.py or eis_reduce_events.py in Mantid",
+            "5. Analyze time-sliced neutron data corresponding to EIS measurements"
         ],
-        "tools": ["eis_timing_extractor", "mantid_event_splitter", "eis_measurement_splitter"]
+        "tools": ["eis_interval_extractor"]
     }
 }
 

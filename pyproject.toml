@@ -33,14 +33,13 @@ dependencies = [
     "tqdm",
     "click",
     "scipy",
+    "fastmcp",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-cov",
-    "black",
-    "flake8",
 ]
 
 [project.urls]
@@ -52,6 +51,7 @@ run-fit = "analyzer_tools.cli:run_fit_cli"
 assess-partial = "analyzer_tools.cli:assess_partial_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
 eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
+analyzer-mcp = "analyzer_tools.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -75,11 +75,3 @@ omit = ["*/tests/*", "*/test_*"]
 fail_under = 20
 show_missing = true
 skip_covered = false
-
-[tool.black]
-line-length = 88
-target-version = ['py39']
-
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ["E203", "W503"]
