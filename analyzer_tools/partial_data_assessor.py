@@ -4,8 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 from datetime import datetime
-import argparse
 import configparser
+from typing import Optional
+
+import click
 
 def get_data_files(set_id, data_dir):
     """
@@ -148,17 +150,50 @@ def assess_data_set(set_id, data_dir, output_dir):
     # Generate markdown report
     generate_markdown_report(set_id, metrics, plot_path, output_dir)
 
-if __name__ == '__main__':
+
+def _get_config():
+    """Load config.ini for default paths."""
     config = configparser.ConfigParser()
     config.read('config.ini')
+    return config
 
-    parser = argparse.ArgumentParser(description='Assess partial data sets.')
-    parser.add_argument('set_id', type=str, help='Set ID to assess.')
-    args = parser.parse_args()
 
-    data_dir = config.get('paths', 'partial_data_dir')
-    output_dir = config.get('paths', 'reports_dir')
+@click.command()
+@click.argument('set_id', type=str)
+@click.option(
+    '--data-dir',
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help='Directory containing partial data files. Defaults to config.ini value.'
+)
+@click.option(
+    '--output-dir',
+    type=click.Path(file_okay=False),
+    default=None,
+    help='Directory for output reports and plots. Defaults to config.ini value.'
+)
+def main(set_id: str, data_dir: Optional[str], output_dir: Optional[str]):
+    """Assess partial data sets for quality and overlap matching.
+
+    SET_ID is the identifier for the data set to assess.
+
+    \b
+    Examples:
+      assess-partial 218281
+      assess-partial 218281 --data-dir ./data/partial --output-dir ./reports
+    """
+    config = _get_config()
+    
+    if data_dir is None:
+        data_dir = config.get('paths', 'partial_data_dir')
+    if output_dir is None:
+        output_dir = config.get('paths', 'reports_dir')
+    
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    assess_data_set(args.set_id, data_dir, output_dir)
+    assess_data_set(set_id, data_dir, output_dir)
+
+
+if __name__ == '__main__':
+    main()

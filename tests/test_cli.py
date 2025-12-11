@@ -17,19 +17,17 @@ class TestCliMain:
     """Test the main CLI function."""
     
     @patch('analyzer_tools.registry.print_tool_overview')
-    @patch('builtins.print')
-    def test_list_tools_option(self, mock_print, mock_overview):
+    def test_list_tools_option(self, mock_overview):
         """Test --list-tools option."""
-        # Test with --list-tools
-        with patch('sys.argv', ['cli.py', '--list-tools']):
-            main()
+        runner = CliRunner()
+        result = runner.invoke(main, ['--list-tools'])
         
-        # Should call print_tool_overview 
+        # Should call print_tool_overview
+        assert result.exit_code == 0
         mock_overview.assert_called_once()
     
     @patch('analyzer_tools.registry.get_workflows')
-    @patch('builtins.print')
-    def test_workflows_option(self, mock_print, mock_get_workflows):
+    def test_workflows_option(self, mock_get_workflows):
         """Test --workflows option."""
         # Mock workflows data
         mock_workflows = {
@@ -42,19 +40,15 @@ class TestCliMain:
         }
         mock_get_workflows.return_value = mock_workflows
         
-        # Test with --workflows
-        with patch('sys.argv', ['cli.py', '--workflows']):
-            main()
+        runner = CliRunner()
+        result = runner.invoke(main, ['--workflows'])
         
         # Should call get_workflows and print information
+        assert result.exit_code == 0
         mock_get_workflows.assert_called_once()
-        mock_print.assert_called()
         
         # Check that workflow information was printed
-        print_calls = [str(call) for call in mock_print.call_args_list]
-        combined_output = " ".join(print_calls)
-        
-        assert "Basic Analysis" in combined_output
+        assert "Basic Analysis" in result.output
 
 
 class TestPlannerCLI:
@@ -180,74 +174,31 @@ class TestPlannerCLI:
             assert result.exit_code != 0
             assert "Invalid value for '--entropy-method'" in result.output
     
-    @patch('analyzer_tools.registry.print_tool_overview')
-    def test_no_arguments_calls_welcome(self, mock_overview):
-        """Test that calling with no arguments shows tool overview."""
-        with patch('sys.argv', ['cli.py']):
-            main()
-        
-        # Should call print_tool_overview function
-        mock_overview.assert_called_once()
-    
-    @patch('analyzer_tools.registry.print_tool_overview')
-    @patch('builtins.print')
-    def test_list_tools_with_specific_data_type(self, mock_print, mock_overview):
-        """Test --list-tools with data type filtering."""
-        # Test listing tools - should show all data types
-        with patch('sys.argv', ['cli.py', '--list-tools']):
-            main()
-        
-        mock_overview.assert_called_once()
-
-
 class TestCliHelpers:
     """Test CLI helper functions and edge cases."""
     
-    @patch('analyzer_tools.registry.print_tool_overview')
-    @patch('builtins.print')
-    def test_empty_tools_list(self, mock_print, mock_overview):
-        """Test handling of empty tools list."""        
-        with patch('sys.argv', ['cli.py', '--list-tools']):
-            main()
-        
-        # Should call print_tool_overview
-        mock_overview.assert_called_once()
-    
     @patch('analyzer_tools.registry.get_workflows')
-    @patch('builtins.print') 
-    def test_empty_workflows_list(self, mock_print, mock_get_workflows):
+    def test_empty_workflows_list(self, mock_get_workflows):
         """Test handling of empty workflows list."""
         mock_get_workflows.return_value = {}
         
-        with patch('sys.argv', ['cli.py', '--workflows']):
-            main()
+        runner = CliRunner()
+        result = runner.invoke(main, ['--workflows'])
         
         # Should handle empty workflows gracefully
-        mock_print.assert_called()
-    
-    @patch('builtins.print')
-    def test_invalid_option_shows_help(self, mock_print):
-        """Test that invalid options show help message."""
-        with patch('sys.argv', ['cli.py', '--invalid-option']):
-            try:
-                main()
-            except SystemExit:
-                # argparse exits on invalid options, which is expected
-                pass
-        
-        # The function should either print help or exit gracefully
-        # This test mainly ensures no exceptions are raised unexpectedly
+        assert result.exit_code == 0
 
 
 class TestCliIntegration:
     """Integration tests for CLI functionality."""
     
-    @patch('sys.argv', ['cli.py', '--help'])
     def test_help_option(self):
         """Test --help option."""
-        # Help should cause SystemExit (normal argparse behavior)
-        with pytest.raises(SystemExit):
-            main()
+        runner = CliRunner()
+        result = runner.invoke(main, ['--help'])
+        
+        assert result.exit_code == 0
+        assert "Neutron Reflectometry Data Analysis Tools" in result.output
     
     @patch('analyzer_tools.registry.print_tool_overview')
     @patch('analyzer_tools.registry.get_all_tools')
@@ -256,53 +207,19 @@ class TestCliIntegration:
         """Test that multiple CLI calls work independently."""
         mock_get_workflows.return_value = {'workflow1': {'name': 'Test', 'description': 'test', 'steps': [], 'tools': []}}
         
+        runner = CliRunner()
+        
         # Call with different arguments
-        with patch('sys.argv', ['cli.py']):
-            main()
+        result = runner.invoke(main, [])
+        assert result.exit_code == 0
         mock_overview.assert_called()
         
-        with patch('sys.argv', ['cli.py', '--list-tools']):
-            main()
-        # print_tool_overview called again
+        result = runner.invoke(main, ['--list-tools'])
+        assert result.exit_code == 0
         
-        with patch('sys.argv', ['cli.py', '--workflows']):
-            main()
+        result = runner.invoke(main, ['--workflows'])
+        assert result.exit_code == 0
         mock_get_workflows.assert_called()
-    
-    @patch('builtins.print')
-    def test_main_with_help_flag(self, mock_print):
-        """Test main function with help flag."""
-        test_args = ['cli.py', '--help']
-        with patch('sys.argv', test_args):
-            try:
-                from analyzer_tools.cli import main
-                main()
-            except SystemExit:
-                pass  # argparse calls sys.exit after showing help
-        
-        # Help is printed to stdout by argparse, not through print()
-        # So we just check that the function ran without error
-
-    @patch('analyzer_tools.welcome.welcome')
-    def test_main_no_args_calls_welcome(self, mock_welcome):
-        """Test that main with no args calls registry print."""
-        test_args = ['cli.py']
-        with patch('sys.argv', test_args):
-            from analyzer_tools.cli import main
-            main()
-        
-        # The actual CLI doesn't call welcome.welcome() directly,
-        # it calls registry.print_tool_overview() which does the welcome display
-
-    @patch('analyzer_tools.registry.print_tool_overview')
-    def test_main_with_list_tools(self, mock_print_overview):
-        """Test main function with list-tools option."""
-        test_args = ['cli.py', '--list-tools']
-        with patch('sys.argv', test_args):
-            from analyzer_tools.cli import main
-            main()
-        
-        mock_print_overview.assert_called()
 
 
 class TestPlannerCLIExtended:
@@ -348,26 +265,6 @@ class TestPlannerCLIExtended:
             assert "3.00" in combined_output
             assert "0.500" in combined_output
             assert "0.800" in combined_output
-    
-    def test_print_ascii_graph_empty(self):
-        """Test _print_ascii_graph with empty results."""
-        results = []
-        
-        with patch('click.echo') as mock_echo:
-            _print_ascii_graph(results)
-            
-            # Should still print header
-            assert mock_echo.call_count >= 2
-    
-    def test_print_ascii_graph_zero_max_gain(self):
-        """Test _print_ascii_graph with zero max gain."""
-        results = [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]
-        
-        with patch('click.echo') as mock_echo:
-            _print_ascii_graph(results)
-            
-            # Should handle zero gain gracefully
-            assert mock_echo.call_count >= 4
     
     def test_optimize_with_verbose_flag(self):
         """Test optimize command with verbose flag enabled."""

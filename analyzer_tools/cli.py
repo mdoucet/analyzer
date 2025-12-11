@@ -5,7 +5,8 @@ Command-line interfaces for analyzer tools.
 
 import sys
 import os
-import argparse
+
+import click
 
 # Add the project root to the path for backward compatibility
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -21,24 +22,8 @@ def run_fit_cli():
 
 def assess_partial_cli():
     """Command-line interface for partial data assessor."""
-    # Since partial_data_assessor doesn't have a main(), we'll use the script directly
-    import configparser
-    import argparse
-    from .partial_data_assessor import assess_data_set
-    
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-
-    parser = argparse.ArgumentParser(description='Assess partial data sets.')
-    parser.add_argument('set_id', type=str, help='Set ID to assess.')
-    args = parser.parse_args()
-
-    data_dir = config.get('paths', 'partial_data_dir')
-    output_dir = config.get('paths', 'reports_dir')
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    assess_data_set(args.set_id, data_dir, output_dir)
+    from .partial_data_assessor import main
+    main()
 
 
 def create_model_cli():
@@ -59,8 +44,22 @@ def eis_interval_extractor_cli():
     main()
 
 
-def main():
-    """Main CLI entry point with tool discovery."""
+@click.command()
+@click.option('--list-tools', 'list_tools', is_flag=True,
+              help='List all available analysis tools')
+@click.option('--help-tool', 'help_tool', type=str, metavar='TOOL',
+              help='Get detailed help for a specific tool')
+@click.option('--workflows', is_flag=True,
+              help='Show available analysis workflows')
+def main(list_tools: bool, help_tool: str, workflows: bool):
+    """Neutron Reflectometry Data Analysis Tools.
+
+    \b
+    Examples:
+      analyzer-tools --list-tools              # Show all available tools
+      analyzer-tools --help-tool partial       # Get help for partial data assessor
+      analyzer-tools --workflows              # Show analysis workflows
+    """
     # Import here to avoid circular imports and allow standalone execution
     try:
         from .registry import print_tool_overview, get_all_tools, get_workflows
@@ -68,34 +67,15 @@ def main():
         # Fallback for standalone execution
         from analyzer_tools.registry import print_tool_overview, get_all_tools, get_workflows
     
-    parser = argparse.ArgumentParser(
-        description='Neutron Reflectometry Data Analysis Tools',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  analyzer-tools --list-tools              # Show all available tools
-  analyzer-tools --help-tool partial       # Get help for partial data assessor
-  analyzer-tools --workflows              # Show analysis workflows
-""")
-    
-    parser.add_argument('--list-tools', action='store_true',
-                        help='List all available analysis tools')
-    parser.add_argument('--help-tool', type=str, metavar='TOOL',
-                        help='Get detailed help for a specific tool')
-    parser.add_argument('--workflows', action='store_true',
-                        help='Show available analysis workflows')
-    
-    args = parser.parse_args()
-    
-    if args.list_tools:
+    if list_tools:
         print_tool_overview()
         return
         
-    if args.workflows:
-        workflows = get_workflows()
+    if workflows:
+        workflow_dict = get_workflows()
         print("\n🔄 ANALYSIS WORKFLOWS:")
         print("=" * 50)
-        for name, workflow in workflows.items():
+        for name, workflow in workflow_dict.items():
             print(f"\n📋 {workflow['name']}")
             print(f"   {workflow['description']}")
             print("   Steps:")
@@ -105,13 +85,13 @@ Examples:
         print("\n" + "=" * 50)
         return
         
-    if args.help_tool:
+    if help_tool:
         tools = get_all_tools()
         tool_key = None
         
         # Find tool by partial name match
         for key, tool in tools.items():
-            if args.help_tool.lower() in key.lower() or args.help_tool.lower() in tool.name.lower():
+            if help_tool.lower() in key.lower() or help_tool.lower() in tool.name.lower():
                 tool_key = key
                 break
                 
@@ -127,7 +107,7 @@ Examples:
                 print(f"  {example}")
             print()
         else:
-            print(f"Tool '{args.help_tool}' not found.")
+            print(f"Tool '{help_tool}' not found.")
             print("Available tools:")
             for key, tool in tools.items():
                 print(f"  {key}: {tool.name}")

@@ -1,8 +1,9 @@
 import os
-import subprocess
 import pytest
+from click.testing import CliRunner
 
-from models import cu_thf
+from analyzer_tools.create_temporary_model import main
+
 
 @pytest.fixture
 def cleanup_files():
@@ -11,31 +12,25 @@ def cleanup_files():
     if os.path.exists("models/cu_thf_test.py"):
         os.remove("models/cu_thf_test.py")
 
+
 def test_create_temporary_model(cleanup_files):
-    """
-    Test the create_temporary_model.py script.
-    """
-    base_model = "cu_thf"
-    new_model = "cu_thf_test"
-    adjustments = ["Cu", "thickness", "500,800"]
+    """Test the create_temporary_model CLI using CliRunner."""
+    runner = CliRunner()
+    
+    result = runner.invoke(main, [
+        'cu_thf',
+        'cu_thf_test',
+        '--adjust',
+        'Cu thickness 500,800',
+    ])
 
-    # Run the script
-    subprocess.run(
-        [
-            "python3",
-            "analyzer_tools/create_temporary_model.py",
-            base_model,
-            new_model,
-            "--adjust",
-        ]
-        + adjustments,
-        check=True,
-    )
-
+    # Check command succeeded
+    assert result.exit_code == 0, f"Command failed with output: {result.output}"
+    
     # Check that the new model file was created
-    assert os.path.exists(f"models/{new_model}.py")
+    assert os.path.exists("models/cu_thf_test.py")
 
     # Check that the parameter was changed
-    with open(f"models/{new_model}.py", "r") as f:
+    with open("models/cu_thf_test.py", "r") as f:
         content = f.read()
         assert 'sample["Cu"].thickness.range(500.0, 800.0)' in content

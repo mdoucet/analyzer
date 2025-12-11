@@ -10,13 +10,14 @@ Supports two resolution modes:
 - Per-frequency: One interval per frequency measurement (fine, for detailed analysis)
 """
 
-import argparse
 import glob
 import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import click
 
 
 def parse_mpt_header(filepath: str) -> Dict[str, any]:
@@ -262,85 +263,88 @@ def extract_per_frequency_intervals(
     return intervals
 
 
-def main():
-    """Command-line interface."""
-    parser = argparse.ArgumentParser(
-        description='Extract EIS timing intervals and output as JSON',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Resolution modes:
-  per-file       One interval per EIS file (default, good for reduction)
-  per-frequency  One interval per frequency measurement (detailed analysis)
+@click.command()
+@click.option(
+    '--data-dir',
+    type=click.Path(exists=True, file_okay=False),
+    required=True,
+    help='Directory containing EIS .mpt files'
+)
+@click.option(
+    '--pattern',
+    type=str,
+    default='*C02_?.mpt',
+    show_default=True,
+    help='Glob pattern to match files'
+)
+@click.option(
+    '--exclude',
+    type=str,
+    default='fit',
+    show_default=True,
+    help='Exclude files containing this string'
+)
+@click.option(
+    '--resolution',
+    type=click.Choice(['per-file', 'per-frequency'], case_sensitive=False),
+    default='per-file',
+    show_default=True,
+    help='Interval resolution mode'
+)
+@click.option(
+    '--output', '-o',
+    type=click.Path(),
+    default=None,
+    help='Output JSON file path. If not specified, prints to stdout.'
+)
+@click.option(
+    '--quiet', '-q',
+    is_flag=True,
+    help='Suppress progress messages'
+)
+def main(data_dir: str, pattern: str, exclude: str, resolution: str,
+         output: Optional[str], quiet: bool) -> int:
+    """Extract EIS timing intervals and output as JSON.
 
-Examples:
-  # Extract per-file intervals (default)
-  eis-interval-extractor --data-dir /path/to/eis/data --output intervals.json
-  
-  # Extract per-frequency intervals
-  eis-interval-extractor --data-dir /path/to/eis/data --resolution per-frequency -o intervals.json
-  
-  # Print to stdout
-  eis-interval-extractor --data-dir /path/to/eis/data --quiet
+    Resolution modes:
 
-The output JSON can be used with Mantid scripts in scripts/mantid/ for
-event filtering and reduction.
-"""
-    )
-    
-    parser.add_argument(
-        '--data-dir',
-        type=str,
-        required=True,
-        help='Directory containing EIS .mpt files'
-    )
-    parser.add_argument(
-        '--pattern',
-        type=str,
-        default='*C02_?.mpt',
-        help='Glob pattern to match files (default: *C02_?.mpt)'
-    )
-    parser.add_argument(
-        '--exclude',
-        type=str,
-        default='fit',
-        help='Exclude files containing this string (default: fit)'
-    )
-    parser.add_argument(
-        '--resolution',
-        type=str,
-        choices=['per-file', 'per-frequency'],
-        default='per-file',
-        help='Interval resolution (default: per-file)'
-    )
-    parser.add_argument(
-        '--output', '-o',
-        type=str,
-        help='Output JSON file path. If not specified, prints to stdout.'
-    )
-    parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress progress messages'
-    )
-    
-    args = parser.parse_args()
-    
-    if not args.quiet:
+    \b
+      per-file       One interval per EIS file (default, good for reduction)
+      per-frequency  One interval per frequency measurement (detailed analysis)
+
+    Examples:
+
+    \b
+      # Extract per-file intervals (default)
+      eis-interval-extractor --data-dir /path/to/eis/data --output intervals.json
+
+    \b
+      # Extract per-frequency intervals
+      eis-interval-extractor --data-dir /path/to/eis/data --resolution per-frequency -o intervals.json
+
+    \b
+      # Print to stdout
+      eis-interval-extractor --data-dir /path/to/eis/data --quiet
+
+    The output JSON can be used with Mantid scripts in scripts/mantid/ for
+    event filtering and reduction.
+    """
+    if not quiet:
         print("EIS Interval Extractor")
         print("=" * 60)
-        print(f"Data directory: {args.data_dir}")
-        print(f"File pattern: {args.pattern}")
-        print(f"Resolution: {args.resolution}")
+        print(f"Data directory: {data_dir}")
+        print(f"File pattern: {pattern}")
+        print(f"Resolution: {resolution}")
         print()
     
     # Extract intervals based on resolution
-    if args.resolution == 'per-file':
+    if resolution == 'per-file':
         intervals = extract_per_file_intervals(
-            args.data_dir, args.pattern, args.exclude, verbose=not args.quiet
+            data_dir, pattern, exclude, verbose=not quiet
         )
     else:
         intervals = extract_per_frequency_intervals(
-            args.data_dir, args.pattern, args.exclude, verbose=not args.quiet
+            data_dir, pattern, exclude, verbose=not quiet
         )
     
     if not intervals:
@@ -348,22 +352,22 @@ event filtering and reduction.
         return 1
     
     # Create output structure
-    output = {
-        'source_directory': str(Path(args.data_dir).resolve()),
-        'pattern': args.pattern,
-        'resolution': args.resolution,
+    result = {
+        'source_directory': str(Path(data_dir).resolve()),
+        'pattern': pattern,
+        'resolution': resolution,
         'n_intervals': len(intervals),
         'intervals': intervals
     }
     
     # Output
-    if args.output:
-        with open(args.output, 'w') as f:
-            json.dump(output, f, indent=2)
-        if not args.quiet:
-            print(f"\nSaved {len(intervals)} intervals to: {args.output}")
+    if output:
+        with open(output, 'w') as f:
+            json.dump(result, f, indent=2)
+        if not quiet:
+            print(f"\nSaved {len(intervals)} intervals to: {output}")
     else:
-        print(json.dumps(output, indent=2))
+        print(json.dumps(result, indent=2))
     
     return 0
 

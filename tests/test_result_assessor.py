@@ -5,6 +5,7 @@ import shutil
 import json
 import numpy as np
 from unittest.mock import patch, MagicMock
+from click.testing import CliRunner
 from analyzer_tools import result_assessor
 
 class TestResultAssessor:
@@ -167,15 +168,25 @@ Cu thickness 500.102"""
 
     def test_main_function(self):
         # Test the main function with minimal arguments
-        with patch('sys.argv', ['result_assessor.py', '/tmp/test', '123', 'test_model']):
-            with patch('analyzer_tools.result_assessor.assess_result') as mock_assess:
-                with patch('configparser.ConfigParser') as mock_config:
-                    mock_config_instance = MagicMock()
-                    mock_config_instance.get.return_value = self.reports_dir
-                    mock_config.return_value = mock_config_instance
-                    
-                    result_assessor.main()
-                    mock_assess.assert_called_once()
+        runner = CliRunner()
+        
+        # Create a test directory for the CLI test
+        test_data_dir = os.path.join(self.test_dir, 'data')
+        os.makedirs(test_data_dir)
+        
+        with patch('analyzer_tools.result_assessor.assess_result') as mock_assess:
+            with patch('analyzer_tools.result_assessor._get_config') as mock_get_config:
+                mock_config_instance = MagicMock()
+                mock_config_instance.get.return_value = self.reports_dir
+                mock_get_config.return_value = mock_config_instance
+                
+                result = runner.invoke(
+                    result_assessor.main, 
+                    [test_data_dir, '123', 'test_model']
+                )
+                
+                assert result.exit_code == 0, f"CLI failed: {result.output}"
+                mock_assess.assert_called_once()
 
 if __name__ == "__main__":
     pytest.main()

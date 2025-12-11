@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-import argparse
 import os
 import re
 import sys
 
-def create_fit_script(model_name, data_file):
+import click
+
+
+def create_fit_script(model_name: str, data_file: str) -> None:
     """
     This script generates a fit script by combining a model file
     with fitting commands.
@@ -39,13 +41,19 @@ problem = FitProblem(experiment)
     print(f"Successfully created fit script: {script_name}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Create a model script that can be loaded in refl1d.')
-    parser.add_argument('model_name', type=str, help='Name of the model module in the @models directory (e.g., cu_thf).')
-    parser.add_argument('data_file', type=str, help='Path to the data file (or just filename if in configured combined data directory).')
-    args = parser.parse_args()
+@click.command()
+@click.argument("model_name", type=str)
+@click.argument("data_file", type=str)
+def main(model_name: str, data_file: str):
+    """
+    Create a model script that can be loaded in refl1d.
+    
+    MODEL_NAME: Name of the model module in the models directory (e.g., 'cu_thf').
+    
+    DATA_FILE: Path to the data file (or just filename if in configured combined data directory).
+    """
+    create_fit_script(model_name, data_file)
 
-    create_fit_script(args.model_name, args.data_file)
 
 if __name__ == '__main__':
     main()

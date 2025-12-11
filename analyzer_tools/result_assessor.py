@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import os
 import sys
 import numpy as np
@@ -10,6 +9,7 @@ import json
 from datetime import datetime
 import configparser
 
+import click
 from refl1d.names import FitProblem
 from refl1d import uncertainty
 from bumps import serialize, dream
@@ -397,27 +397,42 @@ def assess_result(directory, set_id, model_name, reports_dir):
     print(f"Report {report_file} updated.")
 
 
-def main():
+def _get_config():
+    """Load configuration from config.ini."""
     config = configparser.ConfigParser()
     config.read("config.ini")
+    return config
 
-    parser = argparse.ArgumentParser(description="Assess the result of a fit.")
-    parser.add_argument(
-        "directory", type=str, help="Directory containing the fit results."
-    )
-    parser.add_argument("set_id", type=str, help="The set ID of the data.")
-    parser.add_argument(
-        "model_name",
-        type=str,
-        default="model",
-        help="Name of the model used for the fit.",
-    )
-    output_dir = config.get("paths", "reports_dir")
+
+@click.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.argument("set_id", type=str)
+@click.argument("model_name", type=str)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Directory to save reports. Defaults to config.ini reports_dir.",
+)
+def main(directory: str, set_id: str, model_name: str, output_dir: str):
+    """
+    Assess the result of a reflectivity fit.
+    
+    DIRECTORY: Directory containing the fit results.
+    
+    SET_ID: The set ID of the data.
+    
+    MODEL_NAME: Name of the model used for the fit.
+    """
+    config = _get_config()
+    
+    if output_dir is None:
+        output_dir = config.get("paths", "reports_dir")
+    
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    args = parser.parse_args()
 
-    assess_result(args.directory, args.set_id, args.model_name, output_dir)
+    assess_result(directory, set_id, model_name, output_dir)
 
 
 if __name__ == "__main__":

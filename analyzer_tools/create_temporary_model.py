@@ -1,6 +1,8 @@
-import argparse
 import os
 import re
+from typing import Dict, Tuple, List
+
+import click
 
 
 def adjust_model_parameters(model_content, adjustments):
@@ -56,25 +58,53 @@ def create_temporary_model(base_model_name, new_model_name, adjustments):
     print(f"Temporary model '{new_model_name}' created successfully.")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Create a temporary model with adjusted parameter ranges."
-    )
-    parser.add_argument("base_model", type=str, help="The base model to use.")
-    parser.add_argument("new_model", type=str, help="The name of the new model.")
-    parser.add_argument(
-        "--adjust",
-        nargs=3,
-        action="append",
-        metavar=("LAYER", "PARAM", "MIN,MAX"),
-        help="Adjust a parameter range. Example: --adjust Cu thickness 500,800",
-    )
-    args = parser.parse_args()
-
+def parse_adjustment(ctx, param, value) -> Dict[str, Tuple[float, float]]:
+    """Parse adjustment strings into a dictionary."""
     adjustments = {}
-    if args.adjust:
-        for layer, param, values in args.adjust:
-            min_val, max_val = values.split(",")
-            adjustments[f"{layer}.{param}"] = (float(min_val), float(max_val))
+    if value:
+        for adjustment in value:
+            parts = adjustment.split()
+            if len(parts) != 3:
+                raise click.BadParameter(
+                    f"Invalid adjustment format: '{adjustment}'. "
+                    "Expected: 'LAYER PARAM MIN,MAX'"
+                )
+            layer, param_name, values = parts
+            try:
+                min_val, max_val = values.split(",")
+                adjustments[f"{layer}.{param_name}"] = (float(min_val), float(max_val))
+            except ValueError:
+                raise click.BadParameter(
+                    f"Invalid range format: '{values}'. Expected: 'MIN,MAX'"
+                )
+    return adjustments
 
-    create_temporary_model(args.base_model, args.new_model, adjustments)
+
+@click.command()
+@click.argument("base_model", type=str)
+@click.argument("new_model", type=str)
+@click.option(
+    "--adjust", "-a",
+    multiple=True,
+    help="Adjust a parameter range. Format: 'LAYER PARAM MIN,MAX'. Example: --adjust 'Cu thickness 500,800'",
+)
+def main(base_model: str, new_model: str, adjust: tuple):
+    """
+    Create a temporary model with adjusted parameter ranges.
+    
+    BASE_MODEL: The base model to copy from (e.g., 'cu_thf').
+    
+    NEW_MODEL: The name for the new model (e.g., 'cu_thf_temp').
+    
+    Examples:
+    
+        create-model cu_thf cu_thf_temp --adjust 'Cu thickness 500,800'
+        
+        create-model cu_thf cu_thf_wide -a 'Cu thickness 300,1000' -a 'THF rho -0.5,2.0'
+    """
+    adjustments = parse_adjustment(None, None, adjust)
+    create_temporary_model(base_model, new_model, adjustments)
+
+
+if __name__ == "__main__":
+    main()

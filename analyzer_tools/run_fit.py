@@ -1,8 +1,8 @@
 import os
 import sys
-import argparse
 import importlib
 import configparser
+import click
 import numpy as np
 from refl1d.names import *
 from bumps.fitters import fit
@@ -63,57 +63,66 @@ def execute_fit(model_name, data_file, output_dir):
     return output_dir
 
 
-def main():
-    """Main function for command-line interface."""
+def _get_config():
+    """Load configuration from config.ini."""
+    config = configparser.ConfigParser()
+    config.read("config.ini")
+    return config
+
+
+@click.command()
+@click.argument("set_id", type=str)
+@click.argument("model_name", type=str)
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Directory containing the combined data files.",
+)
+@click.option(
+    "--results-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Top level directory to store results.",
+)
+@click.option(
+    "--reports-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Top level directory to store reports.",
+)
+def main(set_id: str, model_name: str, data_dir: str, results_dir: str, reports_dir: str):
+    """
+    Execute a reflectivity fit using a specified model.
+    
+    SET_ID: The set ID of the data to fit (e.g., '218281').
+    
+    MODEL_NAME: Name of the model module in the models directory (e.g., 'cu_thf').
+    """
     try:
         from .result_assessor import assess_result
     except ImportError:
-        # Fallback for when running directly
         from analyzer_tools.result_assessor import assess_result
 
-    config = configparser.ConfigParser()
-    config.read("config.ini")
+    config = _get_config()
 
-    parser = argparse.ArgumentParser(
-        description="Execute a fit using a specified model."
-    )
-    parser.add_argument("set_id", type=str, help="The set ID of the data to fit.")
-    parser.add_argument(
-        "model_name",
-        type=str,
-        help="Name of the model module in the models directory (e.g., cu_thf).",
-    )
-    parser.add_argument(
-        "--data_dir",
-        type=str,
-        default=config.get("paths", "combined_data_dir"),
-        help="Directory containing the combined data files.",
-    )
-    parser.add_argument(
-        "--results_dir",
-        type=str,
-        default=config.get("paths", "results_dir"),
-        help="Top level directory to store results.",
-    )
-    parser.add_argument(
-        "--reports_dir",
-        type=str,
-        default=config.get("paths", "reports_dir"),
-        help="Top level directory to store reports.",
-    )
-    args = parser.parse_args()
+    # Use config defaults if not provided
+    if data_dir is None:
+        data_dir = config.get("paths", "combined_data_dir")
+    if results_dir is None:
+        results_dir = config.get("paths", "results_dir")
+    if reports_dir is None:
+        reports_dir = config.get("paths", "reports_dir")
 
     data_file_template = config.get("paths", "combined_data_template")
-    data_file = os.path.join(
-        args.data_dir, data_file_template.format(set_id=args.set_id)
-    )
-    output_dir = os.path.join(args.results_dir, f"{args.set_id}_{args.model_name}")
+    data_file = os.path.join(data_dir, data_file_template.format(set_id=set_id))
+    output_dir = os.path.join(results_dir, f"{set_id}_{model_name}")
 
     os.makedirs(output_dir, exist_ok=True)
 
-    execute_fit(args.model_name, data_file, output_dir)
+    execute_fit(model_name, data_file, output_dir)
 
-    assess_result(output_dir, args.set_id, args.model_name, args.reports_dir)
+    assess_result(output_dir, set_id, model_name, reports_dir)
 
 
 if __name__ == "__main__":
