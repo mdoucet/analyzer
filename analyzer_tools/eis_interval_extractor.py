@@ -182,20 +182,15 @@ def extract_per_file_intervals(
             print(f"Processing: {filename}")
         
         try:
-            header_info = parse_mpt_header(filepath)
-            start_time = header_info['acquisition_start']
-            
-            if start_time is None:
-                if verbose:
-                    print(f"  Warning: No acquisition start time, skipping")
-                continue
-            
             measurements = read_frequency_measurements(filepath)
             if not measurements:
                 if verbose:
                     print(f"  Warning: No measurements found, skipping")
                 continue
             
+            # Use first and last measurement times as the actual file interval
+            # (header acquisition_start is global experiment start, same for all files)
+            start_time = measurements[0]['wall_clock']
             end_time = measurements[-1]['wall_clock']
             duration = (end_time - start_time).total_seconds()
             
