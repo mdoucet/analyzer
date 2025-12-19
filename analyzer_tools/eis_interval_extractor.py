@@ -211,8 +211,8 @@ def extract_per_file_intervals(
                 'end': end_time.isoformat(),
                 'duration_seconds': duration,
                 'n_frequencies': len(measurements),
-                'first_time_s': measurements[0]['time_s'],
-                'last_time_s': measurements[-1]['time_s'],
+                'first_time_s': measurements[0]['time_seconds'],
+                'last_time_s': measurements[-1]['time_seconds'],
             }
             if avg_ewe is not None:
                 interval_data['avg_ewe_v'] = avg_ewe
