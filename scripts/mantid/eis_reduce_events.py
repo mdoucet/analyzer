@@ -76,42 +76,6 @@ def reduce_and_save(ws, template_data, output_path, ws_db=None):
         print(f"  Error reducing workspace: {e}")
         return None
 
-
-def plot_slices(reduced_list, eis_names, output_path, offset=10):
-    """Create a summary plot of all reduced slices."""
-    try:
-        from matplotlib import pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(8, 8))
-
-        _running_offset = 1.0
-        for i, (_data, name) in enumerate(zip(reduced_list, eis_names)):
-            if _data is None:
-                continue
-            qz, refl, d_refl, _ = _data
-            plt.errorbar(
-                qz,
-                refl * _running_offset,
-                yerr=d_refl * _running_offset,
-                markersize=4,
-                marker="o",
-                label=f"{i}: {name[:30]}...",
-            )
-            _running_offset *= offset
-
-        plt.legend(fontsize=8)
-        plt.xlabel(r"Q [$1/\AA$]")
-        plt.ylabel("R(Q)")
-        ax.set_yscale("log")
-        ax.set_xscale("log")
-        plt.title("Time-Resolved Reflectivity (EIS Intervals)")
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150)
-        print(f"  Saved plot: {output_path}")
-    except Exception as e:
-        print(f"  Error creating plot: {e}")
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Filter and reduce neutron events by EIS measurement intervals",
@@ -161,9 +125,6 @@ Example:
         type=float,
         default=0.0,
         help="Theta offset to apply during reduction (default: 0.0)",
-    )
-    parser.add_argument(
-        "--no-plot", action="store_true", help="Skip creating summary plot"
     )
     parser.add_argument(
         "--tz-offset",
@@ -252,7 +213,7 @@ Example:
             mk.DateAndTime(end_dt.isoformat()).totalNanoseconds() + time_zone_delta
         )
         intervals_abs.append((filename, start_abs, end_abs))
-        duration_s = end_abs - start_abs
+        duration_s = (end_abs - start_abs) / 1_000_000_000
         print(f"  {filename[:50]}... ({duration_s:.1f}s)")
 
     # Create filter table workspace
@@ -266,7 +227,7 @@ Example:
     filter_table.setRowCount(0)
 
     for i, (filename, start_abs, end_abs) in enumerate(intervals_abs):
-        filter_table.addRow((start_abs, end_abs, str(i)))
+        filter_table.addRow((start_abs, end_abs, i))
 
     # Filter events by EIS measurement intervals
     print("\nFiltering events by EIS intervals...")
@@ -321,12 +282,6 @@ Example:
         _reduced = reduce_and_save(tmpws, template_data, output_file, ws_db=ws_db)
         reduced_list.append(_reduced)
         eis_names.append(eis_filename)
-
-    # Create summary plot
-    if not args.no_plot:
-        print("\nCreating summary plot...")
-        plot_file = os.path.join(args.output_dir, f"r{meas_run}_eis_summary.png")
-        plot_slices(reduced_list, eis_names, plot_file)
 
     # Save reduction summary as JSON
     print("\nSaving reduction summary...")
