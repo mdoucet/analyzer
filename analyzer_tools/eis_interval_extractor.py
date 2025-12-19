@@ -185,7 +185,7 @@ def extract_per_file_intervals(
             measurements = read_frequency_measurements(filepath)
             if not measurements:
                 if verbose:
-                    print(f"  Warning: No measurements found, skipping")
+                    print("  Warning: No measurements found, skipping")
                 continue
             
             # Use first and last measurement times as the actual file interval
@@ -210,7 +210,9 @@ def extract_per_file_intervals(
                 'start': start_time.isoformat(),
                 'end': end_time.isoformat(),
                 'duration_seconds': duration,
-                'n_frequencies': len(measurements)
+                'n_frequencies': len(measurements),
+                'first_time_s': measurements[0]['time_s'],
+                'last_time_s': measurements[-1]['time_s'],
             }
             if avg_ewe is not None:
                 interval_data['avg_ewe_v'] = avg_ewe
