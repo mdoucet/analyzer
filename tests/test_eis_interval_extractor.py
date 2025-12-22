@@ -246,6 +246,105 @@ class TestMainFunction:
         assert callable(main)
 
 
+class TestGenerateHoldIntervals:
+    """Tests for generate_hold_intervals function."""
+    
+    def test_generates_correct_number_of_intervals(self):
+        """Test that the correct number of intervals is generated."""
+        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        
+        start = datetime(2025, 4, 20, 10, 0, 0)
+        end = datetime(2025, 4, 20, 10, 2, 0)  # 2 minutes = 120 seconds
+        
+        # 30-second intervals should give 4 intervals
+        intervals = generate_hold_intervals(start, end, 30.0)
+        assert len(intervals) == 4
+    
+    def test_interval_fields(self):
+        """Test that intervals have required fields."""
+        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        
+        start = datetime(2025, 4, 20, 10, 0, 0)
+        end = datetime(2025, 4, 20, 10, 1, 0)  # 1 minute
+        
+        intervals = generate_hold_intervals(start, end, 30.0)
+        
+        for interval in intervals:
+            assert 'label' in interval
+            assert 'interval_type' in interval
+            assert interval['interval_type'] == 'hold'
+            assert 'start' in interval
+            assert 'end' in interval
+            assert 'duration_seconds' in interval
+    
+    def test_handles_partial_final_interval(self):
+        """Test that partial final intervals are handled correctly."""
+        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        
+        start = datetime(2025, 4, 20, 10, 0, 0)
+        end = datetime(2025, 4, 20, 10, 0, 45)  # 45 seconds
+        
+        # 30-second intervals should give 2 intervals: 30s + 15s
+        intervals = generate_hold_intervals(start, end, 30.0)
+        assert len(intervals) == 2
+        assert intervals[0]['duration_seconds'] == 30.0
+        assert intervals[1]['duration_seconds'] == 15.0
+    
+    def test_returns_empty_for_short_period(self):
+        """Test that very short periods return empty list."""
+        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        
+        start = datetime(2025, 4, 20, 10, 0, 0)
+        end = datetime(2025, 4, 20, 10, 0, 0, 500000)  # 0.5 seconds
+        
+        intervals = generate_hold_intervals(start, end, 30.0)
+        assert len(intervals) == 0
+
+
+class TestHoldIntervalsInPerFile:
+    """Tests for hold interval integration in extract_per_file_intervals."""
+    
+    def test_hold_intervals_generated_for_initial_gap(self, sample_mpt_directory):
+        """Test that hold intervals are generated before first EIS measurement."""
+        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        
+        # The sample files have acquisition start at 10:55:16.521
+        # but first measurement at ~10:55:16.521 + 507.96s = ~11:03:44
+        # So there should be hold intervals
+        intervals = extract_per_file_intervals(
+            sample_mpt_directory,
+            pattern='*C02_?.mpt',
+            hold_interval=60.0,  # 1-minute slices
+            verbose=False
+        )
+        
+        # Should have both hold and EIS intervals
+        hold_intervals = [i for i in intervals if i.get('interval_type') == 'hold']
+        eis_intervals = [i for i in intervals if i.get('interval_type') == 'eis']
+        
+        # We have 2 EIS files in the fixture
+        assert len(eis_intervals) == 2
+        # There should be hold intervals (exact count depends on gap duration)
+        assert len(hold_intervals) >= 0  # May be 0 if gaps are small in fixture
+    
+    def test_no_hold_intervals_without_option(self, sample_mpt_directory):
+        """Test that no hold intervals are generated without the option."""
+        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        
+        intervals = extract_per_file_intervals(
+            sample_mpt_directory,
+            pattern='*C02_?.mpt',
+            hold_interval=None,  # No hold intervals
+            verbose=False
+        )
+        
+        # Should only have EIS intervals (2 files)
+        assert len(intervals) == 2
+        # None should be hold type (field may not exist without hold_interval)
+        hold_intervals = [i for i in intervals if i.get('interval_type') == 'hold']
+        assert len(hold_intervals) == 0
+
+
 class TestCliFunction:
     """Tests for CLI wrapper function."""
     

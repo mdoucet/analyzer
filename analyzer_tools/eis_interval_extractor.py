@@ -147,10 +147,56 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
     return measurements
 
 
+def generate_hold_intervals(
+    start_time: datetime,
+    end_time: datetime,
+    interval_seconds: float,
+    label_prefix: str = "hold"
+) -> List[Dict]:
+    """
+    Generate fixed-duration intervals for a hold period.
+    
+    Args:
+        start_time: Start of the hold period
+        end_time: End of the hold period
+        interval_seconds: Duration of each interval in seconds
+        label_prefix: Prefix for the interval label
+        
+    Returns:
+        List of interval dictionaries
+    """
+    intervals = []
+    current_time = start_time
+    idx = 0
+    
+    while current_time < end_time:
+        next_time = current_time + timedelta(seconds=interval_seconds)
+        # Don't exceed the end time
+        if next_time > end_time:
+            next_time = end_time
+        
+        duration = (next_time - current_time).total_seconds()
+        # Only add if duration is meaningful (at least 1 second)
+        if duration >= 1.0:
+            intervals.append({
+                'label': f"{label_prefix}_{idx}",
+                'interval_type': 'hold',
+                'start': current_time.isoformat(),
+                'end': next_time.isoformat(),
+                'duration_seconds': duration
+            })
+            idx += 1
+        
+        current_time = next_time
+    
+    return intervals
+
+
 def extract_per_file_intervals(
     data_dir: str,
     pattern: str = '*C02_?.mpt',
     exclude: str = 'fit',
+    hold_interval: Optional[float] = None,
     verbose: bool = True
 ) -> List[Dict]:
     """
@@ -162,6 +208,7 @@ def extract_per_file_intervals(
         data_dir: Directory containing .mpt files
         pattern: Glob pattern to match files
         exclude: Exclude files containing this string
+        hold_interval: If specified, generate hold intervals (in seconds) for gaps
         verbose: Print progress messages
         
     Returns:
@@ -175,13 +222,21 @@ def extract_per_file_intervals(
         raise ValueError(f"No files found matching pattern {pattern} in {data_dir}")
     
     intervals = []
+    prev_end_time = None
+    acquisition_start = None
+    hold_count = 0
     
-    for filepath in files:
+    for file_idx, filepath in enumerate(files):
         filename = Path(filepath).name
         if verbose:
             print(f"Processing: {filename}")
         
         try:
+            # Get header info for acquisition start time (needed for hold intervals)
+            header_info = parse_mpt_header(filepath)
+            if acquisition_start is None and header_info['acquisition_start'] is not None:
+                acquisition_start = header_info['acquisition_start']
+            
             measurements = read_frequency_measurements(filepath)
             if not measurements:
                 if verbose:
@@ -193,6 +248,38 @@ def extract_per_file_intervals(
             start_time = measurements[0]['wall_clock']
             end_time = measurements[-1]['wall_clock']
             duration = (end_time - start_time).total_seconds()
+            
+            # Generate hold intervals if requested
+            if hold_interval is not None:
+                # For the first file, generate hold intervals from acquisition start
+                if file_idx == 0 and acquisition_start is not None:
+                    gap_duration = (start_time - acquisition_start).total_seconds()
+                    if gap_duration > 1.0:  # Only if there's a meaningful gap
+                        if verbose:
+                            print(f"  Initial hold period: {gap_duration:.1f}s")
+                        hold_intervals = generate_hold_intervals(
+                            acquisition_start, start_time, hold_interval,
+                            label_prefix=f"hold_initial"
+                        )
+                        for hi in hold_intervals:
+                            hi['hold_index'] = hold_count
+                            hold_count += 1
+                        intervals.extend(hold_intervals)
+                
+                # Generate hold intervals for gap between previous file and this one
+                elif prev_end_time is not None:
+                    gap_duration = (start_time - prev_end_time).total_seconds()
+                    if gap_duration > 1.0:  # Only if there's a meaningful gap
+                        if verbose:
+                            print(f"  Inter-file hold period: {gap_duration:.1f}s")
+                        hold_intervals = generate_hold_intervals(
+                            prev_end_time, start_time, hold_interval,
+                            label_prefix=f"hold_gap_{file_idx}"
+                        )
+                        for hi in hold_intervals:
+                            hi['hold_index'] = hold_count
+                            hold_count += 1
+                        intervals.extend(hold_intervals)
             
             # Calculate average Ewe from all measurements
             ewe_values = [m['ewe_v'] for m in measurements if m['ewe_v'] is not None]
@@ -207,6 +294,7 @@ def extract_per_file_intervals(
             
             interval_data = {
                 'filename': filename,
+                'interval_type': 'eis',
                 'start': start_time.isoformat(),
                 'end': end_time.isoformat(),
                 'duration_seconds': duration,
@@ -218,6 +306,7 @@ def extract_per_file_intervals(
                 interval_data['avg_ewe_v'] = avg_ewe
             
             intervals.append(interval_data)
+            prev_end_time = end_time
             
         except Exception as e:
             if verbose:
@@ -338,6 +427,13 @@ def extract_per_frequency_intervals(
     help='Interval resolution mode'
 )
 @click.option(
+    '--hold-interval',
+    type=float,
+    default=None,
+    help='Split hold periods (gaps before/between EIS) into intervals of this duration (seconds). '
+         'E.g., --hold-interval 30 creates 30-second slices during hold periods.'
+)
+@click.option(
     '--output', '-o',
     type=click.Path(),
     default=None,
@@ -349,7 +445,7 @@ def extract_per_frequency_intervals(
     help='Suppress progress messages'
 )
 def main(data_dir: str, pattern: str, exclude: str, resolution: str,
-         output: Optional[str], quiet: bool) -> int:
+         hold_interval: Optional[float], output: Optional[str], quiet: bool) -> int:
     """Extract EIS timing intervals and output as JSON.
 
     Resolution modes:
@@ -363,6 +459,10 @@ def main(data_dir: str, pattern: str, exclude: str, resolution: str,
     \b
       # Extract per-file intervals (default)
       eis-interval-extractor --data-dir /path/to/eis/data --output intervals.json
+
+    \b
+      # Extract per-file intervals with 30-second hold period slices
+      eis-interval-extractor --data-dir /path/to/eis/data --hold-interval 30 -o intervals.json
 
     \b
       # Extract per-frequency intervals
@@ -381,14 +481,18 @@ def main(data_dir: str, pattern: str, exclude: str, resolution: str,
         print(f"Data directory: {data_dir}")
         print(f"File pattern: {pattern}")
         print(f"Resolution: {resolution}")
+        if hold_interval is not None:
+            print(f"Hold interval: {hold_interval}s")
         print()
     
     # Extract intervals based on resolution
     if resolution == 'per-file':
         intervals = extract_per_file_intervals(
-            data_dir, pattern, exclude, verbose=not quiet
+            data_dir, pattern, exclude, hold_interval=hold_interval, verbose=not quiet
         )
     else:
+        if hold_interval is not None and not quiet:
+            print("Note: --hold-interval is only supported with per-file resolution")
         intervals = extract_per_frequency_intervals(
             data_dir, pattern, exclude, verbose=not quiet
         )
@@ -405,6 +509,15 @@ def main(data_dir: str, pattern: str, exclude: str, resolution: str,
         'n_intervals': len(intervals),
         'intervals': intervals
     }
+    
+    # Add hold_interval info if specified
+    if hold_interval is not None:
+        result['hold_interval_seconds'] = hold_interval
+        # Count hold vs EIS intervals
+        n_hold = sum(1 for i in intervals if i.get('interval_type') == 'hold')
+        n_eis = sum(1 for i in intervals if i.get('interval_type') == 'eis')
+        result['n_hold_intervals'] = n_hold
+        result['n_eis_intervals'] = n_eis
     
     # Output
     if output:
