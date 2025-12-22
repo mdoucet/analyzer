@@ -345,6 +345,56 @@ class TestHoldIntervalsInPerFile:
         assert len(hold_intervals) == 0
 
 
+class TestExtractLabelFromFilename:
+    """Tests for extract_label_from_filename function."""
+    
+    def test_extracts_sequence_number(self):
+        """Test that sequence number is extracted correctly."""
+        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        
+        filename = "sequence_1_CuPt_UHP1MLiBF4-d8-THF_1per-EtOH_expt11_CAs,PEIS,OCV_02_PEIS_C02_1.mpt"
+        label = extract_label_from_filename(filename, pattern="*C02_?.mpt")
+        
+        assert label.startswith("sequence_1")
+        assert "eis_1" in label
+    
+    def test_extracts_different_sequence_numbers(self):
+        """Test that different sequence numbers are extracted correctly."""
+        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        
+        # Test sequence 5 with file number 5
+        filename = "sequence_5_CuPt_expt_C02_5.mpt"
+        label = extract_label_from_filename(filename, pattern="*C02_?.mpt")
+        
+        assert "sequence_5" in label
+        assert "eis_5" in label
+    
+    def test_fallback_for_non_sequence_filename(self):
+        """Test fallback for filenames without sequence pattern."""
+        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        
+        filename = "some_other_filename_structure.mpt"
+        label = extract_label_from_filename(filename)
+        
+        # Should return a cleaned version of the filename
+        assert len(label) <= 30
+        assert ".mpt" not in label
+    
+    def test_eis_intervals_have_labels(self, sample_mpt_directory):
+        """Test that EIS intervals have label field."""
+        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        
+        intervals = extract_per_file_intervals(
+            sample_mpt_directory,
+            pattern='*C02_?.mpt',
+            verbose=False
+        )
+        
+        for interval in intervals:
+            assert 'label' in interval
+            assert len(interval['label']) > 0
+
+
 class TestCliFunction:
     """Tests for CLI wrapper function."""
     
