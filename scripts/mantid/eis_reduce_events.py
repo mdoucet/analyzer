@@ -203,7 +203,8 @@ Example:
     time_zone_delta = int(args.tz_offset * 60 * 60 * 1_000_000_000)  # hours -> nanoseconds
     print(f"  Timezone offset: {args.tz_offset:+.1f} hours")
     for interval in intervals:
-        filename = interval["filename"]
+        # Use label if available, fallback to filename
+        label = interval.get("label", interval.get("filename", "unknown"))
         start_dt = parse_iso_datetime(interval["start"])
         end_dt = parse_iso_datetime(interval["end"])
         start_abs = (
@@ -212,9 +213,10 @@ Example:
         end_abs = (
             mk.DateAndTime(end_dt.isoformat()).totalNanoseconds() + time_zone_delta
         )
-        intervals_abs.append((filename, start_abs, end_abs))
+        intervals_abs.append((label, start_abs, end_abs))
         duration_s = (end_abs - start_abs) / 1_000_000_000
-        print(f"  {filename[:50]}... ({duration_s:.1f}s)")
+        interval_type = interval.get("interval_type", "eis")
+        print(f"  {label} ({interval_type}, {duration_s:.1f}s)")
 
     # Create filter table workspace
     print("\nCreating filter table...")
@@ -270,18 +272,20 @@ Example:
     for i, name in enumerate(wsnames):
         tmpws = mtd[name]
         n_events = tmpws.getNumberEvents()
-        eis_filename = intervals[i]["filename"]
+        # Use label if available, fallback to filename
+        interval_label = intervals[i].get("label", intervals[i].get("filename", f"interval_{i}"))
+        interval_type = intervals[i].get("interval_type", "eis")
         print(f"\nWorkspace {name}: {n_events} events")
-        print(f"  EIS file: {eis_filename}")
+        print(f"  Interval: {interval_label} ({interval_type})")
 
-        # Create output filename
-        clean_name = eis_filename.replace(".mpt", "").replace(",", "_")
+        # Create output filename using the label
+        clean_name = interval_label.replace(",", "_").replace(" ", "_")
         output_file = os.path.join(args.output_dir, f"r{meas_run}_{clean_name}.txt")
 
         # Reduce and save
         _reduced = reduce_and_save(tmpws, template_data, output_file, ws_db=ws_db)
         reduced_list.append(_reduced)
-        eis_names.append(eis_filename)
+        eis_names.append(interval_label)
 
     # Save reduction summary as JSON
     print("\nSaving reduction summary...")
@@ -290,15 +294,20 @@ Example:
         "duration": float(duration),
         "n_intervals": len(intervals),
         "intervals": [
-            {"eis_file": i["filename"], "start": i["start"], "end": i["end"]}
-            for i in intervals
+            {
+                "label": i.get("label", i.get("filename", f"interval_{idx}")),
+                "interval_type": i.get("interval_type", "eis"),
+                "start": i["start"],
+                "end": i["end"],
+            }
+            for idx, i in enumerate(intervals)
         ],
         "reduced_files": [
             os.path.join(
                 args.output_dir,
-                f"r{meas_run}_{i['filename'].replace('.mpt', '').replace(',', '_')}.txt",
+                f"r{meas_run}_{i.get('label', i.get('filename', f'interval_{idx}')).replace(',', '_').replace(' ', '_')}.txt",
             )
-            for i in intervals
+            for idx, i in enumerate(intervals)
         ],
     }
     with open(

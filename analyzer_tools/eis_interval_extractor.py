@@ -147,6 +147,44 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
     return measurements
 
 
+def extract_label_from_filename(filename: str, pattern: str = None) -> str:
+    """
+    Extract a short label from an EIS filename.
+    
+    Looks for patterns like "sequence_N" or similar prefixes.
+    Falls back to a cleaned version of the filename if no pattern found.
+    
+    Args:
+        filename: The full filename (e.g., "sequence_1_CuPt_..._C02_1.mpt")
+        pattern: Optional glob pattern used to match files (for extracting suffix)
+        
+    Returns:
+        A short label suitable for output naming
+    """
+    import re
+    
+    # Try to extract "sequence_N" pattern
+    seq_match = re.match(r'(sequence_\d+)', filename)
+    if seq_match:
+        label = seq_match.group(1)
+        
+        # Try to extract the file number from pattern match (e.g., C02_1 from *C02_?.mpt)
+        if pattern:
+            # Extract the variable part from the pattern (e.g., "?" or "*")
+            # Look for pattern like C02_N at the end
+            suffix_match = re.search(r'_C\d+_(\d+)\.mpt$', filename)
+            if suffix_match:
+                label = f"{label}_eis_{suffix_match.group(1)}"
+        
+        return label
+    
+    # Fallback: use filename without extension, truncated
+    clean = filename.replace('.mpt', '').replace(',', '_')
+    if len(clean) > 30:
+        clean = clean[:30]
+    return clean
+
+
 def generate_hold_intervals(
     start_time: datetime,
     end_time: datetime,
@@ -292,7 +330,11 @@ def extract_per_file_intervals(
                 if avg_ewe is not None:
                     print(f"  Avg <Ewe>: {avg_ewe:.4f} V")
             
+            # Extract a short label for this interval
+            label = extract_label_from_filename(filename, pattern)
+            
             interval_data = {
+                'label': label,
                 'filename': filename,
                 'interval_type': 'eis',
                 'start': start_time.isoformat(),
