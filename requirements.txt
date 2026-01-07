@@ -8,6 +8,8 @@ tqdm
 click
 scipy
 fastmcp
+pyarrow
+pandas
 
 # Development dependencies should be installed via:
 # pip install -e .[dev]

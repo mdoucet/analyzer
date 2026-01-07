@@ -105,6 +105,19 @@ TOOLS = {
             "eis-interval-extractor --data-dir /path/to/eis --pattern '*C02_*.mpt' -o intervals.json"
         ],
         data_type="both"
+    ),
+    
+    "iceberg_packager": ToolInfo(
+        name="Iceberg Packager",
+        module="analyzer_tools.iceberg_packager",
+        description="Package tNR (time-resolved Neutron Reflectometry) data with EIS timing intervals into Parquet files for ingestion into a data lakehouse (Apache Iceberg). Combines reflectivity data, timing metadata, and reduction parameters.",
+        usage="python analyzer_tools/iceberg_packager.py <split_file> <reduced_dir> <template_file> [-o output.parquet]",
+        examples=[
+            "iceberg-packager data/tNR/splits.json data/tNR/reduced REF_L_sample_6_tNR.xml",
+            "iceberg-packager splits.json ./reduced template.xml -o output/tnr_dataset.parquet",
+            "iceberg-packager splits.json ./reduced template.xml --validate-only"
+        ],
+        data_type="both"
     )
 }
 

@@ -44,6 +44,12 @@ def eis_interval_extractor_cli():
     main()
 
 
+def iceberg_packager_cli():
+    """Command-line interface for Iceberg packager."""
+    from .iceberg_packager import main
+    main()
+
+
 @click.command()
 @click.option('--list-tools', 'list_tools', is_flag=True,
               help='List all available analysis tools')

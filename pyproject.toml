@@ -34,6 +34,8 @@ dependencies = [
     "click",
     "scipy",
     "fastmcp",
+    "pyarrow",
+    "pandas",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +55,7 @@ assess-partial = "analyzer_tools.cli:assess_partial_cli"
 assess-result = "analyzer_tools.cli:result_assessor_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
 eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
+iceberg-packager = "analyzer_tools.cli:iceberg_packager_cli"
 analyzer-planner = "analyzer_tools.planner.cli:main"
 analyzer-mcp = "analyzer_tools.mcp_server:main"
 
