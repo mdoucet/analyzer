@@ -3,6 +3,18 @@ We want to package AI-ready data from EIS and time-resolved neutron reflectometr
 
 What we need here is to package the output data for ingestion in a data lakehouse.
 
+Example calls to generate the splits and the reduced data:
+
+```python
+python analyzer_tools/eis_interval_extractor.py --data-dir /SNS/REF_L/IPTS-34347/shared/isaac/ec-data/expt11/ --resolution per-file --hold-interval 30 -o /SNS/REF_L/IPTS-34347/shared/expt11-splits-per-file-w-hold.json
+```
+
+The time slices are then used to split the neutron data file and reduce the data using an data reduction (processing) template:
+
+```python
+python scripts/mantid/eis_reduce_events.py --intervals /SNS/REF_L/IPTS-34347/shared/expt11-splits-per-file-w-hold.json --event-file 218389 --template /SNS/REF_L/IPTS-34347/shared/autoreduce/REF_L_sample_6_tNR.xml --output-dir /SNS/REF_L/IPTS-34347/shared/isaac/tNR/per-file/ --scan-index 4
+```
+
 
 ## Available data:
 - location: $USER/git/experiments-2025/jen-apr2025/data/tNR
