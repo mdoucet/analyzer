@@ -254,7 +254,13 @@ def extract_per_file_intervals(
     """
     data_dir = Path(data_dir)
     all_files = glob.glob(str(data_dir / pattern))
-    files = sorted([f for f in all_files if exclude not in Path(f).name])
+    
+    # Sort numerically by extracting number from C02_N pattern
+    def extract_number(filepath: str) -> int:
+        match = re.search(r'_(\d+)\.mpt$', filepath)
+        return int(match.group(1)) if match else 0
+    
+    files = sorted([f for f in all_files if exclude not in Path(f).name], key=extract_number)
     
     if not files:
         raise ValueError(f"No files found matching pattern {pattern} in {data_dir}")
@@ -379,7 +385,13 @@ def extract_per_frequency_intervals(
     """
     data_dir = Path(data_dir)
     all_files = glob.glob(str(data_dir / pattern))
-    files = sorted([f for f in all_files if exclude not in Path(f).name])
+    
+    # Sort numerically by extracting number from C02_N pattern
+    def extract_number(filepath: str) -> int:
+        match = re.search(r'_(\d+)\.mpt$', filepath)
+        return int(match.group(1)) if match else 0
+    
+    files = sorted([f for f in all_files if exclude not in Path(f).name], key=extract_number)
     
     if not files:
         raise ValueError(f"No files found matching pattern {pattern} in {data_dir}")
@@ -450,7 +462,7 @@ def extract_per_frequency_intervals(
 @click.option(
     '--pattern',
     type=str,
-    default='*C02_?.mpt',
+    default='*C02_[0-9]*.mpt',
     show_default=True,
     help='Glob pattern to match files'
 )
