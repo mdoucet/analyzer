@@ -67,7 +67,87 @@ def parse_mpt_header(filepath: str) -> Dict[str, any]:
         header_line = lines[header_info['num_header_lines'] - 1].strip()
         header_info['column_names'] = header_line.split('\t')
     
+    # Parse potential steps from header if present (multi-step files)
+    header_info['potential_steps'] = parse_potential_steps_from_header(lines, header_info['num_header_lines'])
+    
     return header_info
+
+
+def parse_potential_steps_from_header(lines: List[str], num_header_lines: int) -> Optional[Dict]:
+    """
+    Parse potential step definitions from EC-Lab header for multi-step PEIS files.
+    
+    Multi-step files have tabular header lines like:
+        Ns                  0                   1                   2   ...
+        E (V)               0.0000              -0.1000             -0.1000 ...
+        vs.                 Eoc                 Ref                 Ref ...
+    
+    Note: These lines use fixed-width spacing (not tabs) between values.
+    
+    Args:
+        lines: All lines from the file
+        num_header_lines: Number of header lines
+        
+    Returns:
+        Dictionary mapping step number to potential info, or None if not a multi-step file.
+        Example: {0: {'E_V': 0.0, 'vs': 'Eoc'}, 1: {'E_V': -0.1, 'vs': 'Ref'}, ...}
+    """
+    ns_line = None
+    e_line = None
+    vs_line = None
+    
+    # Search for the potential step definition lines in the header
+    # These lines use fixed-width spacing, so we split on whitespace
+    for line in lines[:num_header_lines]:
+        stripped = line.strip()
+        # Check for Ns line (starts with 'Ns' followed by whitespace and numbers)
+        if stripped.startswith('Ns') and not stripped.startswith('Ns\''):
+            # Split on whitespace and check for numeric values
+            parts = stripped.split()
+            if len(parts) > 1 and parts[1].isdigit():
+                ns_line = stripped
+        elif stripped.startswith('E (V)'):
+            parts = stripped.split()
+            # Should have label and then numeric values
+            if len(parts) > 2:
+                e_line = stripped
+        elif stripped.startswith('vs.'):
+            parts = stripped.split()
+            if len(parts) > 1:
+                vs_line = stripped
+    
+    # If we don't have all three lines, this isn't a multi-step file
+    if not (ns_line and e_line and vs_line):
+        return None
+    
+    # Parse the lines by splitting on whitespace
+    ns_parts = ns_line.split()
+    e_parts = e_line.split()
+    vs_parts = vs_line.split()
+    
+    # Skip the label in each line
+    # Ns line: ['Ns', '0', '1', '2', ...]
+    # E (V) line: ['E', '(V)', '0.0000', '-0.1000', ...]
+    # vs. line: ['vs.', 'Eoc', 'Ref', ...]
+    ns_values = ns_parts[1:]  # Skip 'Ns'
+    e_values = e_parts[2:]    # Skip 'E' and '(V)'
+    vs_values = vs_parts[1:]  # Skip 'vs.'
+    
+    # Build the result dictionary
+    potential_steps = {}
+    for i, ns_str in enumerate(ns_values):
+        try:
+            ns = int(ns_str)
+            e_v = float(e_values[i]) if i < len(e_values) else None
+            vs = vs_values[i] if i < len(vs_values) else None
+            potential_steps[ns] = {
+                'E_V': e_v,
+                'vs': vs
+            }
+        except (ValueError, IndexError):
+            continue
+    
+    return potential_steps if potential_steps else None
 
 
 def read_frequency_measurements(filepath: str) -> List[Dict]:
@@ -105,6 +185,7 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
     z_idx = find_column('|Z|/Ohm')
     im_z_idx = find_column('Im(Z)/Ohm')
     phase_idx = find_column('Phase(Z)/deg')
+    ns_idx = find_column('Ns')  # Step number for multi-step files
     
     measurements = []
     data_lines = lines[header_info['num_header_lines']:]
@@ -132,6 +213,14 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
             freq_hz = float(parts[freq_idx])
             wall_clock = header_info['acquisition_start'] + timedelta(seconds=time_s)
             
+            # Get step number if available (for multi-step files)
+            ns_value = None
+            if ns_idx is not None and ns_idx < len(parts):
+                try:
+                    ns_value = int(float(parts[ns_idx]))
+                except ValueError:
+                    pass
+            
             measurements.append({
                 'frequency_hz': freq_hz,
                 'time_seconds': time_s,
@@ -139,12 +228,78 @@ def read_frequency_measurements(filepath: str) -> List[Dict]:
                 'ewe_v': safe_float(parts, ewe_idx),
                 'z_ohm': safe_float(parts, z_idx),
                 'im_z_ohm': safe_float(parts, im_z_idx),
-                'phase_deg': safe_float(parts, phase_idx)
+                'phase_deg': safe_float(parts, phase_idx),
+                'ns': ns_value
             })
         except (ValueError, IndexError):
             continue
     
     return measurements
+
+
+def split_measurements_by_step(measurements: List[Dict]) -> Dict[int, List[Dict]]:
+    """
+    Split measurements into groups by step number (Ns).
+    
+    Args:
+        measurements: List of measurement dictionaries with 'ns' field
+        
+    Returns:
+        Dictionary mapping step number to list of measurements for that step.
+        Returns empty dict if no step numbers are present.
+    """
+    by_step = {}
+    for m in measurements:
+        ns = m.get('ns')
+        if ns is not None:
+            if ns not in by_step:
+                by_step[ns] = []
+            by_step[ns].append(m)
+    return by_step
+
+
+def has_multiple_steps(measurements: List[Dict]) -> bool:
+    """Check if measurements contain multiple potential steps."""
+    steps = set(m.get('ns') for m in measurements if m.get('ns') is not None)
+    return len(steps) > 1
+
+
+def extract_label_for_step(
+    filename: str,
+    step_number: int,
+    potential_info: Optional[Dict] = None
+) -> str:
+    """
+    Generate a label for a specific potential step.
+    
+    Args:
+        filename: Source filename
+        step_number: Step number (Ns value)
+        potential_info: Optional dict with 'E_V' and 'vs' keys
+        
+    Returns:
+        Label string like "Sample9_step0_0.0V_Eoc" or "Sample9_step1_-0.1V_Ref"
+    """
+    # Extract base name without extension
+    base = filename.replace('.mpt', '').replace(',', '_')
+    
+    # Truncate if too long
+    if len(base) > 40:
+        base = base[:40]
+    
+    # Build label with step info
+    if potential_info and potential_info.get('E_V') is not None:
+        e_v = potential_info['E_V']
+        vs = potential_info.get('vs', '')
+        # Format potential with sign
+        e_str = f"{e_v:+.2f}V".replace('+', 'p').replace('-', 'm').replace('.', 'p')
+        label = f"{base}_step{step_number}_{e_str}"
+        if vs:
+            label = f"{label}_{vs}"
+    else:
+        label = f"{base}_step{step_number}"
+    
+    return label
 
 
 def extract_label_from_filename(filename: str, pattern: str = None) -> str:
@@ -287,6 +442,78 @@ def extract_per_file_intervals(
                     print("  Warning: No measurements found, skipping")
                 continue
             
+            # Check if this is a multi-step file
+            potential_steps = header_info.get('potential_steps')
+            if has_multiple_steps(measurements) and potential_steps:
+                # Handle multi-step file: create one interval per potential step
+                if verbose:
+                    print(f"  Multi-step file detected: {len(potential_steps)} steps")
+                
+                by_step = split_measurements_by_step(measurements)
+                
+                for step_num in sorted(by_step.keys()):
+                    step_measurements = by_step[step_num]
+                    step_info = potential_steps.get(step_num, {})
+                    
+                    step_start = step_measurements[0]['wall_clock']
+                    step_end = step_measurements[-1]['wall_clock']
+                    step_duration = (step_end - step_start).total_seconds()
+                    
+                    # Calculate average Ewe for this step
+                    step_ewe_values = [m['ewe_v'] for m in step_measurements if m['ewe_v'] is not None]
+                    step_avg_ewe = sum(step_ewe_values) / len(step_ewe_values) if step_ewe_values else None
+                    
+                    # Generate hold intervals between steps if requested
+                    if hold_interval is not None and prev_end_time is not None:
+                        gap_duration = (step_start - prev_end_time).total_seconds()
+                        if gap_duration > 1.0:
+                            if verbose:
+                                print(f"    Inter-step hold: {gap_duration:.1f}s")
+                            hold_intervals = generate_hold_intervals(
+                                prev_end_time, step_start, hold_interval,
+                                label_prefix=f"hold_step{step_num}"
+                            )
+                            for hi in hold_intervals:
+                                hi['hold_index'] = hold_count
+                                hold_count += 1
+                            intervals.extend(hold_intervals)
+                    
+                    # Create label for this step
+                    label = extract_label_for_step(filename, step_num, step_info)
+                    
+                    if verbose:
+                        e_v = step_info.get('E_V')
+                        vs = step_info.get('vs', '')
+                        e_str = f"{e_v:.3f}V vs {vs}" if e_v is not None else "unknown"
+                        print(f"    Step {step_num}: {e_str}, {len(step_measurements)} freq, {step_duration:.1f}s")
+                    
+                    interval_data = {
+                        'label': label,
+                        'filename': filename,
+                        'interval_type': 'eis',
+                        'start': step_start.isoformat(),
+                        'end': step_end.isoformat(),
+                        'duration_seconds': step_duration,
+                        'n_frequencies': len(step_measurements),
+                        'first_time_s': step_measurements[0]['time_seconds'],
+                        'last_time_s': step_measurements[-1]['time_seconds'],
+                        'step_number': step_num,
+                    }
+                    
+                    # Add potential info
+                    if step_info.get('E_V') is not None:
+                        interval_data['potential_V'] = step_info['E_V']
+                    if step_info.get('vs'):
+                        interval_data['potential_vs'] = step_info['vs']
+                    if step_avg_ewe is not None:
+                        interval_data['avg_ewe_v'] = step_avg_ewe
+                    
+                    intervals.append(interval_data)
+                    prev_end_time = step_end
+                
+                continue  # Done with this multi-step file
+            
+            # Single-step file: use original logic
             # Use first and last measurement times as the actual file interval
             # (header acquisition_start is global experiment start, same for all files)
             start_time = measurements[0]['wall_clock']
@@ -506,13 +733,27 @@ def main(data_dir: str, pattern: str, exclude: str, resolution: str,
 
     \b
       per-file       One interval per EIS file (default, good for reduction)
+                     Auto-detects multi-step files and creates one interval per
+                     potential step.
       per-frequency  One interval per frequency measurement (detailed analysis)
+
+    Multi-step PEIS files:
+
+    \b
+      When a single .mpt file contains multiple potential steps (detected via
+      the Ns column and header step definitions), per-file mode automatically
+      splits the file into separate intervals for each step. Each interval
+      includes step_number, potential_V, and potential_vs fields.
 
     Examples:
 
     \b
       # Extract per-file intervals (default)
       eis-interval-extractor --data-dir /path/to/eis/data --output intervals.json
+
+    \b
+      # Extract intervals from multi-step PEIS file
+      eis-interval-extractor --data-dir /path/to/aqueous/data --pattern '*PEIS*.mpt' -o intervals.json
 
     \b
       # Extract per-file intervals with 30-second hold period slices
