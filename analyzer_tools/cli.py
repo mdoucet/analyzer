@@ -50,6 +50,18 @@ def iceberg_packager_cli():
     main()
 
 
+def eis_reduce_events_cli():
+    """Command-line interface for Mantid EIS event reduction."""
+    from .reduction.eis_reduce_events import main
+    main()
+
+
+def simple_reduction_cli():
+    """Command-line interface for Mantid simple reduction."""
+    from .reduction.simple_reduction import main
+    main()
+
+
 @click.command()
 @click.option('--list-tools', 'list_tools', is_flag=True,
               help='List all available analysis tools')

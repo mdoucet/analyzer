@@ -43,6 +43,10 @@ dev = [
     "pytest",
     "pytest-cov",
 ]
+reduction = [
+    "mantid",
+    "lr_reduction",
+]
 
 [project.urls]
 Homepage = "https://github.com/your-org/analyzer"
@@ -58,6 +62,8 @@ eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
 iceberg-packager = "analyzer_tools.cli:iceberg_packager_cli"
 analyzer-planner = "analyzer_tools.planner.cli:main"
 analyzer-mcp = "analyzer_tools.mcp_server:main"
+eis-reduce-events = "analyzer_tools.cli:eis_reduce_events_cli"
+simple-reduction = "analyzer_tools.cli:simple_reduction_cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
