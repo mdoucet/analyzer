@@ -4,7 +4,7 @@ import tempfile
 import shutil
 import numpy as np
 from unittest.mock import patch, MagicMock
-from analyzer_tools import partial_data_assessor
+from analyzer_tools.analysis import partial_data_assessor
 
 class TestPartialDataAssessor:
     def setup_method(self):

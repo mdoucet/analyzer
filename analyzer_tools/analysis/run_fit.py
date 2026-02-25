@@ -102,7 +102,7 @@ def main(set_id: str, model_name: str, data_dir: str, results_dir: str, reports_
     try:
         from .result_assessor import assess_result
     except ImportError:
-        from analyzer_tools.result_assessor import assess_result
+        from analyzer_tools.analysis.result_assessor import assess_result
 
     config = _get_config()
 

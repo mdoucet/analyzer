@@ -6,7 +6,7 @@ import json
 import numpy as np
 from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
-from analyzer_tools import result_assessor
+from analyzer_tools.analysis import result_assessor
 
 class TestResultAssessor:
     def setup_method(self):
@@ -174,8 +174,8 @@ Cu thickness 500.102"""
         test_data_dir = os.path.join(self.test_dir, 'data')
         os.makedirs(test_data_dir)
         
-        with patch('analyzer_tools.result_assessor.assess_result') as mock_assess:
-            with patch('analyzer_tools.result_assessor._get_config') as mock_get_config:
+        with patch('analyzer_tools.analysis.result_assessor.assess_result') as mock_assess:
+            with patch('analyzer_tools.analysis.result_assessor._get_config') as mock_get_config:
                 mock_config_instance = MagicMock()
                 mock_config_instance.get.return_value = self.reports_dir
                 mock_get_config.return_value = mock_config_instance

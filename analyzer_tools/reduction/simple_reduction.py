@@ -77,13 +77,23 @@ def main(
     n_events = setup.sample_ws.getNumberEvents()
     logger.info("Sample workspace: %d events", n_events)
 
-    output_file = os.path.join(output_dir, f"r{setup.run_number}_reduced.txt")
-    result = reduce_workspace(
+    result, dq_slope = reduce_workspace(
         setup.sample_ws, setup.template_data, ws_db=setup.direct_beam_ws,
     )
-    save_reduction(result, output_file)
 
-    logger.info("Reduction complete — %s", output_file)
+    # Build metadata from the template / workspace for the output header
+    td = setup.template_data
+    meta_data = {
+        "run_number": setup.run_number,
+        "sequence_id": getattr(td, "sequence_id", setup.run_number),
+        "sequence_number": getattr(td, "sequence_number", 1),
+        "duration": setup.duration,
+        "theta": getattr(td, "angle", 0.0),
+        "dq_over_q": dq_slope,
+    }
+
+    saved = save_reduction(result, output_dir, meta_data)
+    logger.info("Reduction complete — %s", saved)
 
 
 if __name__ == "__main__":

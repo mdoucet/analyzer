@@ -36,6 +36,7 @@ dependencies = [
     "fastmcp",
     "pyarrow",
     "pandas",
+    "lmfit",
 ]
 
 [project.optional-dependencies]

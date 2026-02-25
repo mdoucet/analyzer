@@ -80,14 +80,14 @@ class TestParseMptHeader:
     
     def test_parse_header_extracts_num_header_lines(self, sample_mpt_file):
         """Test that header line count is extracted correctly."""
-        from analyzer_tools.eis_interval_extractor import parse_mpt_header
+        from analyzer_tools.analysis.eis_interval_extractor import parse_mpt_header
         
         header_info = parse_mpt_header(sample_mpt_file)
         assert header_info['num_header_lines'] == 5
     
     def test_parse_header_extracts_acquisition_time(self, sample_mpt_file):
         """Test that acquisition start time is extracted correctly."""
-        from analyzer_tools.eis_interval_extractor import parse_mpt_header
+        from analyzer_tools.analysis.eis_interval_extractor import parse_mpt_header
         
         header_info = parse_mpt_header(sample_mpt_file)
         assert header_info['acquisition_start'] is not None
@@ -97,7 +97,7 @@ class TestParseMptHeader:
     
     def test_parse_header_extracts_column_names(self, sample_mpt_file):
         """Test that column names are extracted from the header."""
-        from analyzer_tools.eis_interval_extractor import parse_mpt_header
+        from analyzer_tools.analysis.eis_interval_extractor import parse_mpt_header
         
         header_info = parse_mpt_header(sample_mpt_file)
         assert 'freq/Hz' in header_info['column_names']
@@ -109,7 +109,7 @@ class TestReadFrequencyMeasurements:
     
     def test_returns_list(self, sample_mpt_file):
         """Test that read_frequency_measurements returns a list of dictionaries."""
-        from analyzer_tools.eis_interval_extractor import read_frequency_measurements
+        from analyzer_tools.analysis.eis_interval_extractor import read_frequency_measurements
         
         data = read_frequency_measurements(sample_mpt_file)
         assert isinstance(data, list)
@@ -118,7 +118,7 @@ class TestReadFrequencyMeasurements:
     
     def test_has_required_fields(self, sample_mpt_file):
         """Test that returned data has all required fields."""
-        from analyzer_tools.eis_interval_extractor import read_frequency_measurements
+        from analyzer_tools.analysis.eis_interval_extractor import read_frequency_measurements
         
         data = read_frequency_measurements(sample_mpt_file)
         required_fields = ['frequency_hz', 'time_seconds', 'wall_clock']
@@ -128,7 +128,7 @@ class TestReadFrequencyMeasurements:
     
     def test_wall_clock_time_format(self, sample_mpt_file):
         """Test that wall clock time is a datetime object."""
-        from analyzer_tools.eis_interval_extractor import read_frequency_measurements
+        from analyzer_tools.analysis.eis_interval_extractor import read_frequency_measurements
         
         data = read_frequency_measurements(sample_mpt_file)
         wall_clock = data[0]['wall_clock']
@@ -142,7 +142,7 @@ class TestExtractPerFileIntervals:
     
     def test_returns_list(self, sample_mpt_directory):
         """Test that extract_per_file_intervals returns a list."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(sample_mpt_directory)
         assert isinstance(intervals, list)
@@ -150,7 +150,7 @@ class TestExtractPerFileIntervals:
     
     def test_interval_has_required_fields(self, sample_mpt_directory):
         """Test that intervals have required fields."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(sample_mpt_directory)
         required_fields = ['filename', 'start', 'end', 'duration_seconds']
@@ -161,7 +161,7 @@ class TestExtractPerFileIntervals:
     
     def test_intervals_are_sorted_by_start(self, sample_mpt_directory):
         """Test that intervals are sorted by start time."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(sample_mpt_directory)
         
@@ -175,7 +175,7 @@ class TestExtractPerFrequencyIntervals:
     
     def test_returns_list(self, sample_mpt_directory):
         """Test that extract_per_frequency_intervals returns a list."""
-        from analyzer_tools.eis_interval_extractor import extract_per_frequency_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_frequency_intervals
         
         intervals = extract_per_frequency_intervals(sample_mpt_directory)
         assert isinstance(intervals, list)
@@ -184,7 +184,7 @@ class TestExtractPerFrequencyIntervals:
     
     def test_interval_has_required_fields(self, sample_mpt_directory):
         """Test that intervals have required fields."""
-        from analyzer_tools.eis_interval_extractor import extract_per_frequency_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_frequency_intervals
         
         intervals = extract_per_frequency_intervals(sample_mpt_directory)
         required_fields = ['filename', 'start', 'end', 'duration_seconds', 'frequency_hz', 'measurement_index']
@@ -195,7 +195,7 @@ class TestExtractPerFrequencyIntervals:
     
     def test_intervals_have_frequency(self, sample_mpt_directory):
         """Test that per-frequency intervals include frequency info."""
-        from analyzer_tools.eis_interval_extractor import extract_per_frequency_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_frequency_intervals
         
         intervals = extract_per_frequency_intervals(sample_mpt_directory)
         
@@ -209,7 +209,7 @@ class TestJsonOutput:
     
     def test_save_to_json(self, sample_mpt_directory):
         """Test that intervals can be saved to JSON."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(sample_mpt_directory)
         
@@ -242,7 +242,7 @@ class TestMainFunction:
     
     def test_main_function_exists(self):
         """Test that main CLI function exists."""
-        from analyzer_tools.eis_interval_extractor import main
+        from analyzer_tools.analysis.eis_interval_extractor import main
         assert callable(main)
 
 
@@ -251,7 +251,7 @@ class TestGenerateHoldIntervals:
     
     def test_generates_correct_number_of_intervals(self):
         """Test that the correct number of intervals is generated."""
-        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import generate_hold_intervals
         
         start = datetime(2025, 4, 20, 10, 0, 0)
         end = datetime(2025, 4, 20, 10, 2, 0)  # 2 minutes = 120 seconds
@@ -262,7 +262,7 @@ class TestGenerateHoldIntervals:
     
     def test_interval_fields(self):
         """Test that intervals have required fields."""
-        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import generate_hold_intervals
         
         start = datetime(2025, 4, 20, 10, 0, 0)
         end = datetime(2025, 4, 20, 10, 1, 0)  # 1 minute
@@ -279,7 +279,7 @@ class TestGenerateHoldIntervals:
     
     def test_handles_partial_final_interval(self):
         """Test that partial final intervals are handled correctly."""
-        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import generate_hold_intervals
         
         start = datetime(2025, 4, 20, 10, 0, 0)
         end = datetime(2025, 4, 20, 10, 0, 45)  # 45 seconds
@@ -292,7 +292,7 @@ class TestGenerateHoldIntervals:
     
     def test_returns_empty_for_short_period(self):
         """Test that very short periods return empty list."""
-        from analyzer_tools.eis_interval_extractor import generate_hold_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import generate_hold_intervals
         
         start = datetime(2025, 4, 20, 10, 0, 0)
         end = datetime(2025, 4, 20, 10, 0, 0, 500000)  # 0.5 seconds
@@ -306,7 +306,7 @@ class TestHoldIntervalsInPerFile:
     
     def test_hold_intervals_generated_for_initial_gap(self, sample_mpt_directory):
         """Test that hold intervals are generated before first EIS measurement."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         # The sample files have acquisition start at 10:55:16.521
         # but first measurement at ~10:55:16.521 + 507.96s = ~11:03:44
@@ -329,7 +329,7 @@ class TestHoldIntervalsInPerFile:
     
     def test_no_hold_intervals_without_option(self, sample_mpt_directory):
         """Test that no hold intervals are generated without the option."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(
             sample_mpt_directory,
@@ -350,7 +350,7 @@ class TestExtractLabelFromFilename:
     
     def test_extracts_sequence_number(self):
         """Test that sequence number is extracted correctly."""
-        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        from analyzer_tools.analysis.eis_interval_extractor import extract_label_from_filename
         
         filename = "sequence_1_CuPt_UHP1MLiBF4-d8-THF_1per-EtOH_expt11_CAs,PEIS,OCV_02_PEIS_C02_1.mpt"
         label = extract_label_from_filename(filename, pattern="*C02_?.mpt")
@@ -360,7 +360,7 @@ class TestExtractLabelFromFilename:
     
     def test_extracts_different_sequence_numbers(self):
         """Test that different sequence numbers are extracted correctly."""
-        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        from analyzer_tools.analysis.eis_interval_extractor import extract_label_from_filename
         
         # Test sequence 5 with file number 5
         filename = "sequence_5_CuPt_expt_C02_5.mpt"
@@ -371,7 +371,7 @@ class TestExtractLabelFromFilename:
     
     def test_fallback_for_non_sequence_filename(self):
         """Test fallback for filenames without sequence pattern."""
-        from analyzer_tools.eis_interval_extractor import extract_label_from_filename
+        from analyzer_tools.analysis.eis_interval_extractor import extract_label_from_filename
         
         filename = "some_other_filename_structure.mpt"
         label = extract_label_from_filename(filename)
@@ -382,7 +382,7 @@ class TestExtractLabelFromFilename:
     
     def test_eis_intervals_have_labels(self, sample_mpt_directory):
         """Test that EIS intervals have label field."""
-        from analyzer_tools.eis_interval_extractor import extract_per_file_intervals
+        from analyzer_tools.analysis.eis_interval_extractor import extract_per_file_intervals
         
         intervals = extract_per_file_intervals(
             sample_mpt_directory,

@@ -2,7 +2,7 @@ import os
 import pytest
 from click.testing import CliRunner
 
-from analyzer_tools.create_temporary_model import main
+from analyzer_tools.analysis.create_temporary_model import main
 
 
 @pytest.fixture

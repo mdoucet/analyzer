@@ -12,7 +12,7 @@ Typical usage::
 
     setup = load_reduction("template.xml", "REF_L_12345.nxs.h5")
     result = reduce_workspace(setup.sample_ws, setup.template_data, ws_db=setup.direct_beam_ws)
-    save_reduction(result, "output.txt")
+    save_reduction(result, "output/", meta_data={"run_number": 12345, "sequence_id": 12345, "sequence_number": 1})
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def load_reduction(
     )
 
 
-def reduce_workspace(ws, template_data, *, ws_db=None) -> np.ndarray:
+def reduce_workspace(ws, template_data, *, ws_db=None) -> tuple[np.ndarray, float]:
     """Reduce a single Mantid workspace to reflectivity data.
 
     Parameters
@@ -153,8 +153,9 @@ def reduce_workspace(ws, template_data, *, ws_db=None) -> np.ndarray:
 
     Returns
     -------
-    numpy.ndarray
-        Shape ``(4, N)`` array of ``[Q, R, dR, dQ]``.
+    tuple[numpy.ndarray, float]
+        A ``(4, N)`` array of ``[Q, R, dR, dQ]`` and the ``dq_over_q``
+        resolution slope.
 
     Raises
     ------
@@ -169,28 +170,71 @@ def reduce_workspace(ws, template_data, *, ws_db=None) -> np.ndarray:
     dq_slope = compute_resolution(ws)
     dq = dq_slope * raw[0]
 
-    return np.asarray([raw[0], raw[1], raw[2], dq])
+    return np.asarray([raw[0], raw[1], raw[2], dq]), dq_slope
 
 
-def save_reduction(data: np.ndarray, output_path: str) -> str:
-    """Write a reduced ``[Q, R, dR, dQ]`` array to a text file.
+def save_reduction(
+    data: np.ndarray,
+    output_dir: str,
+    meta_data: dict[str, Any],
+    *,
+    no_header: bool = False,
+) -> str:
+    """Save reduced reflectivity data to a text file.
+
+    By default uses :class:`lr_reduction.output.RunCollection` to write a
+    partial reflectivity file with embedded JSON metadata, following the
+    same naming convention as the SNS auto-reduction pipeline.
+
+    When *no_header* is ``True``, writes a plain four-column text file
+    (Q, R, dR, dQ) with no header – useful for intermediate files such
+    as time-resolved EIS intervals.
 
     Parameters
     ----------
     data : numpy.ndarray
-        Shape ``(4, N)`` array as returned by :func:`reduce_workspace`.
-    output_path : str
-        Destination file path.  Parent directories are created if needed.
+        Shape ``(4, N)`` array of ``[Q, R, dR, dQ]`` as returned by
+        :func:`reduce_workspace`.
+    output_dir : str
+        Directory for the output file (created if needed).
+    meta_data : dict
+        Metadata dictionary.  Must contain ``sequence_id``,
+        ``sequence_number``, and ``run_number`` (used for the file
+        name and, when *no_header* is ``False``, passed to
+        ``RunCollection.add()``).
+    no_header : bool
+        If ``True``, skip the ``RunCollection`` metadata header and
+        save with :func:`numpy.savetxt` instead.
 
     Returns
     -------
     str
         The absolute path of the written file.
     """
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    np.savetxt(output_path, data.T)
-    logger.info("Saved reduced data: %s", output_path)
-    return os.path.abspath(output_path)
+    os.makedirs(output_dir, exist_ok=True)
+
+    reduced_file = os.path.join(
+        output_dir,
+        "REFL_%s_%s_%s_partial.txt"
+        % (
+            meta_data["sequence_id"],
+            meta_data["sequence_number"],
+            meta_data["run_number"],
+        ),
+    )
+
+    if no_header:
+        np.savetxt(reduced_file, data.T)
+    else:
+        from lr_reduction import output
+
+        qz, refl, d_refl, dq = data
+        coll = output.RunCollection()
+        coll.add(qz, refl, d_refl, meta_data=meta_data)
+        coll.save_ascii(reduced_file, meta_as_json=True)
+
+    logger.info("Saved reduced data: %s", reduced_file)
+    return os.path.abspath(reduced_file)
 
 
 # ---------------------------------------------------------------------------

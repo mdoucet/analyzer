@@ -16,7 +16,7 @@ from analyzer_tools.planner.cli import optimize, alternate_model, report, setup_
 class TestCliMain:
     """Test the main CLI function."""
     
-    @patch('analyzer_tools.registry.print_tool_overview')
+    @patch('analyzer_tools.cli.print_tool_overview')
     def test_list_tools_option(self, mock_overview):
         """Test --list-tools option."""
         runner = CliRunner()
@@ -200,7 +200,7 @@ class TestCliIntegration:
         assert result.exit_code == 0
         assert "Neutron Reflectometry Data Analysis Tools" in result.output
     
-    @patch('analyzer_tools.registry.print_tool_overview')
+    @patch('analyzer_tools.cli.print_tool_overview')
     @patch('analyzer_tools.registry.get_all_tools')
     @patch('analyzer_tools.registry.get_workflows')
     def test_multiple_calls_work_independently(self, mock_get_workflows, mock_get_tools, mock_overview):

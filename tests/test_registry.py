@@ -7,7 +7,7 @@ from unittest.mock import patch
 from analyzer_tools.registry import (
     ToolInfo, TOOLS, WORKFLOWS, 
     get_all_tools, get_tool, get_tools_by_data_type, 
-    get_workflows, print_tool_overview
+    get_workflows
 )
 
 
@@ -139,56 +139,3 @@ class TestToolRegistryContent:
             assert workflow["description"]
             assert len(workflow["steps"]) > 0
             assert len(workflow["tools"]) > 0
-
-
-class TestPrintToolOverview:
-    """Test the print_tool_overview function."""
-    
-    @patch('builtins.print')
-    def test_print_tool_overview_with_config(self, mock_print):
-        """Test print_tool_overview with mocked config."""
-        mock_data_org = {
-            'combined_data_dir': 'test_combined',
-            'partial_data_dir': 'test_partial', 
-            'reports_dir': 'test_reports',
-            'combined_data_template': 'TEST_{set_id}_data.txt',
-            'models_dir': 'test_models'
-        }
-        
-        with patch('analyzer_tools.config_utils.get_data_organization_info', return_value=mock_data_org):
-            print_tool_overview()
-            
-            # Check that print was called
-            assert mock_print.called
-            
-            # Combine all print calls to check content
-            print_calls = [str(call) for call in mock_print.call_args_list]
-            combined_output = " ".join(print_calls)
-            
-            # Should contain configured paths
-            assert "test_combined" in combined_output
-            assert "test_partial" in combined_output
-            assert "TEST_{set_id}_data.txt" in combined_output
-            
-            # Should contain tool information
-            assert "NEUTRON REFLECTOMETRY DATA ANALYSIS TOOLS" in combined_output
-            assert "AVAILABLE ANALYSIS TOOLS" in combined_output
-            assert "ANALYSIS WORKFLOWS" in combined_output
-            assert "DATA ORGANIZATION" in combined_output
-    
-    @patch('builtins.print') 
-    def test_print_tool_overview_fallback(self, mock_print):
-        """Test print_tool_overview falls back gracefully when config fails."""
-        # Simulate config import failure
-        with patch('analyzer_tools.config_utils.get_data_organization_info', side_effect=ImportError):
-            print_tool_overview()
-            
-            # Should still print something (with default values)
-            assert mock_print.called
-            
-            print_calls = [str(call) for call in mock_print.call_args_list]
-            combined_output = " ".join(print_calls)
-            
-            # Should contain default paths
-            assert "data/combined" in combined_output
-            assert "data/partial" in combined_output

@@ -10,6 +10,7 @@ scipy
 fastmcp
 pyarrow
 pandas
+lmfit
 
 # Development dependencies should be installed via:
 # pip install -e .[dev]

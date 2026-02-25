@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analyzer_tools.iceberg_packager import (
+from analyzer_tools.utils.iceberg_packager import (
     create_reflectivity_records,
     extract_interval_for_file,
     find_reduction_json,

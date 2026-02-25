@@ -22,7 +22,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 try:
-    from .utils import summary_plots
+    from ..utils import summary_plots
 except ImportError:
     # Fallback for standalone execution
     from analyzer_tools.utils import summary_plots
