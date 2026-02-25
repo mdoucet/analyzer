@@ -8,9 +8,6 @@ They are optional dependencies of analyzer-tools::
 
 Public API
 ----------
-- :func:`load_reduction` — load template, event data, and direct beam
-- :func:`reduce_workspace` — reduce a single Mantid workspace to [Q, R, dR, dQ]
-- :func:`save_reduction` — write a reduced array to a text file
 - :func:`filter_events_by_intervals` — split events by EIS time intervals
 """
 
@@ -42,13 +39,10 @@ def require_mantid():
 
 
 # Re-export the main public functions so users can write:
-#   from analyzer_tools.reduction import load_reduction, reduce_workspace
+#   from analyzer_tools.reduction import filter_events_by_intervals
 def __getattr__(name):
     """Lazy-load public symbols to avoid importing mantid at package level."""
     _public = {
-        "load_reduction": ".core",
-        "reduce_workspace": ".core",
-        "save_reduction": ".core",
         "filter_events_by_intervals": ".event_filter",
         "parse_iso_datetime": ".event_filter",
     }

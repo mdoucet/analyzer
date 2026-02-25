@@ -22,10 +22,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+import numpy as np
 
 import click
 
 logger = logging.getLogger(__name__)
+
+
+def _get_run_property(ws, name: str, *, default=None):
+    """Safely extract a scalar property from a workspace run log."""
+    try:
+        return ws.getRun()[name].value
+    except Exception:
+        logger.debug("Could not read run property %r, using default %r", name, default)
+        return default
 
 
 def _save_options(
@@ -143,12 +153,20 @@ def main(
         format="%(levelname)s: %(message)s",
     )
 
-    from . import MantidNotAvailableError
+    from . import MantidNotAvailableError, require_mantid
     try:
-        from .core import load_reduction, reduce_workspace, save_reduction
         from .event_filter import convert_intervals, filter_events_by_intervals
     except MantidNotAvailableError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    require_mantid()
+
+    import mantid
+    import mantid.simpleapi as api
+    from lr_reduction import template as lr_template
+    from lr_reduction.event_reduction import apply_dead_time_correction
+
+    mantid.kernel.config.setLogLevel(3)
 
     # Load intervals
     with open(intervals) as f:
@@ -167,17 +185,36 @@ def main(
         n_intervals=len(interval_list),
     )
 
-    # Common setup
-    setup = load_reduction(
-        template,
-        event_file,
-        scan_index=scan_index,
-        theta_offset=theta_offset,
-    )
+    # Load template
+    logger.info("Loading template: %s (scan_index=%d)", template, scan_index)
+    template_data = lr_template.read_template(template, scan_index)
+    if theta_offset:
+        logger.info("Applying theta offset: %s", theta_offset)
+        template_data.angle_offset = theta_offset
+
+    # Load sample events
+    logger.info("Loading event data: %s", event_file)
+    sample_ws = api.LoadEventNexus(event_file)
+    run_number = int(_get_run_property(sample_ws, "run_number", default=0))
+    duration = float(_get_run_property(sample_ws, "duration", default=0.0))
+
+    if template_data.dead_time:
+        logger.info("Applying dead-time correction to sample data")
+        apply_dead_time_correction(sample_ws, template_data)
+
+    # Load direct beam
+    logger.info("Loading direct beam: REF_L_%s", template_data.norm_file)
+    direct_beam_ws = api.LoadEventNexus(f"REF_L_{template_data.norm_file}")
+
+    if template_data.dead_time:
+        logger.info("Applying dead-time correction to direct beam")
+        apply_dead_time_correction(direct_beam_ws, template_data)
+
+    template_data.dead_time = False
 
     # Convert and filter
     intervals_abs = convert_intervals(interval_list, tz_offset_hours=tz_offset)
-    filtered = filter_events_by_intervals(setup.sample_ws, intervals_abs)
+    filtered = filter_events_by_intervals(sample_ws, intervals_abs)
 
     # Reduce each slice
     reduced_files: list[str] = []
@@ -186,13 +223,17 @@ def main(
         logger.info("Reducing %s (%d events)", label, n_events)
 
         clean_name = label.replace(",", "_").replace(" ", "_")
-        output_file = os.path.join(output_dir, f"r{setup.run_number}_{clean_name}.txt")
+        output_file = os.path.join(output_dir, f"r{run_number}_{clean_name}.txt")
 
-        result = reduce_workspace(ws, setup.template_data, ws_db=setup.direct_beam_ws)
-        save_reduction(result, output_file)
+        result, meta_data = lr_template.process_from_template_ws(
+            ws, template_data, ws_db=direct_beam_ws, info=True,
+        )
+        dq = meta_data["dq_over_q"] * result[0]
+        np.savetxt(output_file, np.column_stack([result[0], result[1], result[2], dq]))
+        logger.info("Saved reduced data: %s", output_file)
         reduced_files.append(output_file)
 
-    _save_summary(setup.run_number, setup.duration, interval_list, output_dir, reduced_files)
+    _save_summary(run_number, duration, interval_list, output_dir, reduced_files)
     logger.info("Reduction complete — %d files in %s", len(reduced_files), output_dir)
 
 

@@ -14,7 +14,6 @@ Requires ``mantid`` and ``lr_reduction``::
 from __future__ import annotations
 
 import logging
-import os
 
 import click
 
@@ -63,37 +62,46 @@ def main(
 
     from . import MantidNotAvailableError
     try:
-        from .core import load_reduction, reduce_workspace, save_reduction
+        from . import require_mantid
     except MantidNotAvailableError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    setup = load_reduction(
-        template,
-        event_file,
-        scan_index=scan_index,
-        theta_offset=theta_offset,
+    require_mantid()
+
+    import os
+
+    import mantid
+    import mantid.simpleapi as api
+    from lr_reduction import output as lr_output
+    from lr_reduction import template as lr_template
+
+    mantid.kernel.config.setLogLevel(3)
+
+    logger.info("Loading template: %s (scan_index=%d)", template, scan_index)
+    template_data = lr_template.read_template(template, scan_index)
+
+    if theta_offset:
+        template_data.angle_offset = theta_offset
+
+    logger.info("Loading event data: %s", event_file)
+    ws = api.LoadEventNexus(event_file)
+    logger.info("Sample workspace: %d events", ws.getNumberEvents())
+
+    qz, refl, d_refl, meta_data = lr_template.process_from_template_ws(
+        ws, template_data, info=True,
     )
 
-    n_events = setup.sample_ws.getNumberEvents()
-    logger.info("Sample workspace: %d events", n_events)
-
-    result, dq_slope = reduce_workspace(
-        setup.sample_ws, setup.template_data, ws_db=setup.direct_beam_ws,
+    # Save using RunCollection (standard SNS auto-reduction format)
+    os.makedirs(output_dir, exist_ok=True)
+    reduced_file = os.path.join(
+        output_dir,
+        "REFL_%s_%s_%s_partial.txt"
+        % (meta_data["sequence_id"], meta_data["sequence_number"], meta_data["run_number"]),
     )
-
-    # Build metadata from the template / workspace for the output header
-    td = setup.template_data
-    meta_data = {
-        "run_number": setup.run_number,
-        "sequence_id": getattr(td, "sequence_id", setup.run_number),
-        "sequence_number": getattr(td, "sequence_number", 1),
-        "duration": setup.duration,
-        "theta": getattr(td, "angle", 0.0),
-        "dq_over_q": dq_slope,
-    }
-
-    saved = save_reduction(result, output_dir, meta_data)
-    logger.info("Reduction complete — %s", saved)
+    coll = lr_output.RunCollection()
+    coll.add(qz, refl, d_refl, meta_data=meta_data)
+    coll.save_ascii(reduced_file, meta_as_json=True)
+    logger.info("Reduction complete — %s", os.path.abspath(reduced_file))
 
 
 if __name__ == "__main__":
