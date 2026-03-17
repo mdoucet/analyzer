@@ -62,7 +62,7 @@ class TestMCPServer:
         """Test list_available_models returns models."""
         from analyzer_tools.mcp_server import list_available_models
 
-        result = list_available_models.fn()
+        result = list_available_models()
 
         assert result["success"] is True
         assert "cu_thf" in result["models"]
@@ -71,7 +71,7 @@ class TestMCPServer:
         """Test list_available_data returns a result."""
         from analyzer_tools.mcp_server import list_available_data
 
-        result = list_available_data.fn()
+        result = list_available_data()
 
         assert result["success"] is True
         assert "combined_data" in result
