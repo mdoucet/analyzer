@@ -70,6 +70,12 @@ RUN pixi run python -c "from mantid.kernel import ConfigService; ConfigService.I
         "logging.loggers.root.level = debug" \
         >> /root/.mantid/Mantid.user.properties
 
+# Make container runnable as a non-root user
+RUN chmod og+rwX -R /app /root
+ENV HOME=/root
+
 # Default to a shell inside the pixi environment
 ENTRYPOINT ["pixi", "run"]
 CMD ["bash"]
+
+
