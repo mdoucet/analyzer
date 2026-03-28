@@ -25,8 +25,9 @@ import mantid.kernel as mk
 mantid.kernel.config.setLogLevel(3)
 
 # Import LiquidsReflectometer reduction modules
-from lr_reduction import template
+from lr_reduction import template, workflow
 from lr_reduction.event_reduction import apply_dead_time_correction, compute_resolution
+
 
 
 def reduce_and_save(ws, template_data, output_path, ws_db=None):
@@ -106,41 +107,9 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # Load the reduction template
-    print(f"\nLoading template: {args.template}")
-    template_data = template.read_template(args.template, args.scan_index)
-
-    # Apply theta offset
-    if args.theta_offset:
-        print(f"Theta offset: {args.theta_offset}")
-        template_data.angle_offset = args.theta_offset
-
     # Load event data
     print(f"\nLoading event data: {args.event_file}")
     meas_ws = api.LoadEventNexus(args.event_file)
-
-    # Get run metadata
-    try:
-        meas_run = meas_ws.getRun()["run_number"].value
-    except Exception:
-        meas_run = 0
-
-    # Apply dead time correction up front
-    if template_data.dead_time:
-        print("Applying dead time correction to sample data...")
-        apply_dead_time_correction(meas_ws, template_data)
-
-    # Load direct beam workspace (do this once for efficiency)
-    print(f"\nLoading direct beam: REF_L_{template_data.norm_file}")
-    ws_db = api.LoadEventNexus(f"REF_L_{template_data.norm_file}")
-
-    # Apply dead time correction to direct beam
-    if template_data.dead_time:
-        print("Applying dead time correction to direct beam...")
-        apply_dead_time_correction(ws_db, template_data)
-
-    # Turn off dead time in template (already applied)
-    template_data.dead_time = False
 
     # Reduce each filtered workspace
     print("\nReducing workspace...")
@@ -149,15 +118,16 @@ def main():
 
     print(f"\nWorkspace with {n_events} events")
 
-
-    output_file = os.path.join(args.output_dir, f"r{meas_run}_reduced.txt")
-
     # Reduce and save
-    _reduced = reduce_and_save(meas_ws, template_data, output_file, ws_db=ws_db)
+    #_reduced = reduce_and_save(meas_ws, template_data, output_file, ws_db=ws_db)
+    first_run_of_set = workflow.reduce(meas_ws, args.template, args.output_dir,
+                                           average_overlap=False,
+                                           theta_offset=args.theta_offset,
+                                           q_summing=False, bck_in_q=False)
 
     print("\n" + "=" * 60)
     print("Reduction complete!")
-    print(f"  Output file: {output_file}")
+    print(f"  Output dir: {args.output_dir}")
     print("=" * 60)
 
 
