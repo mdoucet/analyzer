@@ -37,6 +37,7 @@ dependencies = [
     "pyarrow",
     "pandas",
     "lmfit",
+    "requests",
 ]
 
 [project.optional-dependencies]
