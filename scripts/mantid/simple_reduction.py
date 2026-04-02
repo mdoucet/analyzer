@@ -27,6 +27,7 @@ mantid.kernel.config.setLogLevel(3)
 # Import LiquidsReflectometer reduction modules
 from lr_reduction import template, workflow
 from lr_reduction.event_reduction import apply_dead_time_correction, compute_resolution
+import shutil
 
 
 
@@ -129,6 +130,13 @@ def main():
     metadata_file = os.path.join(args.output_dir, ".last_reduced_set")
     with open(metadata_file, "w") as f:
         f.write(str(first_run_of_set))
+    combined_file = os.path.join(args.output_dir, f"REFL_{first_run_of_set}_combined_data_auto.txt")
+    output_file = os.path.join(args.output_dir, "reflectivity.txt")
+    if os.path.exists(combined_file):
+        shutil.copy(combined_file, output_file)
+        print(f"  Copied to: {output_file}")
+    else:
+        print(f"  Warning: Combined file not found: {combined_file}")
     print(f"  Metadata saved: {metadata_file}")
     print("\n" + "=" * 60)
     print("Reduction complete!")
