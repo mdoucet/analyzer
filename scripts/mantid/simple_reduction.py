@@ -125,6 +125,11 @@ def main():
                                            theta_offset=args.theta_offset,
                                            q_summing=False, bck_in_q=False)
 
+    # Save the first run of set to a metadata file
+    metadata_file = os.path.join(args.output_dir, ".last_reduced_set")
+    with open(metadata_file, "w") as f:
+        f.write(str(first_run_of_set))
+    print(f"  Metadata saved: {metadata_file}")
     print("\n" + "=" * 60)
     print("Reduction complete!")
     print(f"  Output dir: {args.output_dir}")
