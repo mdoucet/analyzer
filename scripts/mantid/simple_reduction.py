@@ -106,7 +106,7 @@ def main():
 
     # Create output directory
     if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+        os.makedirs(args.output_dir, exist_ok=True)
 
     # Load event data
     print(f"\nLoading event data: {args.event_file}")
