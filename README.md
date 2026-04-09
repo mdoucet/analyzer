@@ -105,6 +105,15 @@ analyzer_tools/
     ├── iceberg_packager.py # Parquet/Iceberg export
     ├── model_utils.py
     └── summary_plots.py
+
+skills/                         # LLM skill definitions (SKILL.md)
+├── data-organization/          # Data layout and file conventions
+├── fitting/                    # Fitting workflow (run-fit, assess-result)
+├── partial-assessment/         # Partial data overlap checks
+├── time-resolved/              # EIS intervals and event reduction
+├── data-packaging/             # Iceberg/Parquet packaging
+├── models/                     # Model system documentation
+└── reflectometry-basics/       # Domain primer (NR concepts)
 ```
 
 

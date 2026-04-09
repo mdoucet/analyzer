@@ -31,4 +31,17 @@ graph TD
 - A reflectivity curve is usually plotted as R versus Q, with dR being the error bar on R.
 
 
+## Skills
+
+The `skills/` directory contains detailed SKILL.md files organized by workflow.
+Consult these when you need to understand how to use a tool, what inputs/outputs to expect, or how to chain tools together:
+
+- `skills/data-organization/` — Data layout, file naming, column formats
+- `skills/models/` — Model files, available models, creating/adjusting models
+- `skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
+- `skills/fitting/` — run-fit → assess-result → adjust model workflow
+- `skills/partial-assessment/` — Partial data overlap quality checks
+- `skills/time-resolved/` — EIS interval extraction and neutron event reduction
+- `skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
+
 
