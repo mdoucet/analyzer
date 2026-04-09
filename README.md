@@ -101,11 +101,6 @@ analyzer_tools/
 │   ├── event_filter.py     # EIS event filtering
 │   ├── simple_reduction.py # Single-run reduction CLI
 │   └── eis_reduce_events.py# Time-resolved reduction CLI
-├── planner/                # Experiment design optimization
-│   ├── cli.py
-│   ├── experiment_design.py
-│   ├── optimizer.py
-│   └── report.py
 └── utils/
     ├── iceberg_packager.py # Parquet/Iceberg export
     ├── model_utils.py
@@ -126,7 +121,6 @@ All commands are installed as entry points via `pip install -e .`:
 | `create-model` | Generate a fit script from a model |
 | `eis-intervals` | Extract EIS timing intervals to JSON |
 | `iceberg-packager` | Package tNR data into Parquet files |
-| `analyzer-planner` | Experiment design optimization |
 | `analyzer-mcp` | Start the MCP server |
 | `simple-reduction` | Mantid single-run reduction (Docker) |
 | `eis-reduce-events` | Mantid time-resolved reduction (Docker) |
@@ -188,16 +182,7 @@ run-fit 218281 cu_thf_wide
 assess-result 218281 cu_thf_wide
 ```
 
-### 4. Experiment Planning
-```bash
-analyzer-planner optimize \
-  --data-file data/combined/REFL_218386_combined_data_auto.txt \
-  --model-file models/cu_thf_planner \
-  --param "THF rho" --param-values "4.0,5.0,6.0" \
-  --output-dir results/planning
-```
-
-### 5. Time-Resolved Reduction (Docker)
+### 4. Time-Resolved Reduction (Docker)
 ```bash
 docker compose run analyzer eis-intervals --data-dir /app/data/eis -o intervals.json
 docker compose run analyzer eis-reduce-events \
@@ -213,7 +198,7 @@ docker compose run analyzer eis-reduce-events \
 Models are Python files in `models/` that define a `create_fit_experiment()` function
 returning a `refl1d.experiment.Experiment`.
 
-Available models: `cu_thf`, `cu_thf_no_oxide`, `cu_thf_tiny`, `cu_thf_planner`,
+Available models: `cu_thf`, `cu_thf_no_oxide`, `cu_thf_tiny`,
 `ionomer_sld_1`, `ionomer_sld_2`, `ionomer_sld_3`.
 
 ```bash
