@@ -99,7 +99,7 @@ analyzer_tools/
 ├── reduction/              # Mantid-based reduction (optional)
 │   ├── core.py             # Shared reduction engine
 │   ├── event_filter.py     # EIS event filtering
-│   ├── simple_reduction.py # Single-run reduction CLI
+│   ├── reduction.py        # Single-run reduction CLI
 │   └── eis_reduce_events.py# Time-resolved reduction CLI
 └── utils/
     ├── iceberg_packager.py # Parquet/Iceberg export

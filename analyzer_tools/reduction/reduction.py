@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI entry point for simple neutron event reduction.
+CLI entry point for neutron event reduction.
 
 Usage::
 
@@ -14,6 +14,8 @@ Requires ``mantid`` and ``lr_reduction``::
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 
 import click
 
@@ -35,10 +37,6 @@ logger = logging.getLogger(__name__)
     help="Directory for output files.",
 )
 @click.option(
-    "--scan-index", default=1, show_default=True, type=int,
-    help="Scan index within the template.",
-)
-@click.option(
     "--theta-offset", default=0.0, show_default=True, type=float,
     help="Theta offset to apply during reduction.",
 )
@@ -50,7 +48,6 @@ def main(
     event_file: str,
     template: str,
     output_dir: str,
-    scan_index: int,
     theta_offset: float,
     verbose: bool,
 ) -> None:
@@ -68,42 +65,44 @@ def main(
 
     require_mantid()
 
-    import os
-
     import mantid
     import mantid.simpleapi as api
-    from lr_reduction import output as lr_output
-    from lr_reduction import template as lr_template
+    from lr_reduction import workflow
 
     mantid.kernel.config.setLogLevel(3)
 
-    logger.info("Loading template: %s (scan_index=%d)", template, scan_index)
-    template_data = lr_template.read_template(template, scan_index)
-
-    if theta_offset:
-        template_data.angle_offset = theta_offset
-
     logger.info("Loading event data: %s", event_file)
     ws = api.LoadEventNexus(event_file)
-    logger.info("Sample workspace: %d events", ws.getNumberEvents())
+    logger.info("Workspace: %d events", ws.getNumberEvents())
 
-    qz, refl, d_refl, meta_data = lr_template.process_from_template_ws(
-        ws, template_data, info=True,
+    logger.info("Reducing with template: %s", template)
+    first_run_of_set = workflow.reduce(
+        ws, template, output_dir,
+        average_overlap=False,
+        theta_offset=theta_offset,
+        q_summing=False,
+        bck_in_q=False,
     )
 
-    # Save using RunCollection (standard SNS auto-reduction format)
-    os.makedirs(output_dir, exist_ok=True)
-    reduced_file = os.path.join(
-        output_dir,
-        "REFL_%s_%s_%s_partial.txt"
-        % (meta_data["sequence_id"], meta_data["sequence_number"], meta_data["run_number"]),
+    # Write metadata so downstream tools know which set was reduced
+    metadata_file = os.path.join(output_dir, ".last_reduced_set")
+    with open(metadata_file, "w") as f:
+        f.write(str(first_run_of_set))
+    logger.info("Metadata saved: %s", metadata_file)
+
+    # Copy the combined file to a well-known name for convenience
+    combined_file = os.path.join(
+        output_dir, f"REFL_{first_run_of_set}_combined_data_auto.txt",
     )
-    coll = lr_output.RunCollection()
-    coll.add(qz, refl, d_refl, meta_data=meta_data)
-    coll.save_ascii(reduced_file, meta_as_json=True)
-    logger.info("Reduction complete — %s", os.path.abspath(reduced_file))
+    output_file = os.path.join(output_dir, "reflectivity.txt")
+    if os.path.exists(combined_file):
+        shutil.copy(combined_file, output_file)
+        logger.info("Combined reflectivity: %s", output_file)
+    else:
+        logger.warning("Combined file not found: %s", combined_file)
+
+    logger.info("Reduction complete — output dir: %s", os.path.abspath(output_dir))
 
 
 if __name__ == "__main__":
     main()
-

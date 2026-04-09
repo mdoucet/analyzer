@@ -186,7 +186,7 @@ def eis_reduce_events_cli():
 
 def simple_reduction_cli():
     """Command-line interface for Mantid simple reduction."""
-    from .reduction.simple_reduction import main
+    from .reduction.reduction import main
     main()
 
 
