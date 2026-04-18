@@ -42,7 +42,6 @@ analyzer-tools --show-data
 - **Experiment Planning** — Optimize experimental parameters using information theory
 - **Time-Resolved Reduction** — EIS interval extraction and Mantid event filtering (via Docker)
 - **Data Packaging** — Export time-resolved datasets to Parquet/Iceberg format
-- **MCP Server** — Expose all tools to LLMs via the Model Context Protocol
 
 
 ## Installation
@@ -71,7 +70,6 @@ channels, then installs analyzer-tools via pip.
 docker compose build
 docker compose run analyzer bash          # interactive shell
 docker compose run analyzer run-fit 218281 cu_thf
-docker compose up mcp                     # start MCP server
 docker compose run test                   # run tests
 ```
 
@@ -84,10 +82,8 @@ Output files are available on your host via volume mounts (`data/`, `models/`,
 ```
 analyzer_tools/
 ├── cli.py                  # Click CLI and entry point wrappers
-├── mcp_server.py           # FastMCP server (LLM tool integration)
 ├── config_utils.py         # Centralized config.ini reader
 ├── registry.py             # Tool catalog for CLI discovery
-├── schemas.py              # Pydantic output schemas for MCP
 ├── analysis/               # Core analysis tools
 │   ├── partial_data_assessor.py
 │   ├── run_fit.py
@@ -130,7 +126,6 @@ All commands are installed as entry points via `pip install -e .`:
 | `create-model` | Generate a fit script from a model |
 | `eis-intervals` | Extract EIS timing intervals to JSON |
 | `iceberg-packager` | Package tNR data into Parquet files |
-| `analyzer-mcp` | Start the MCP server |
 | `simple-reduction` | Mantid single-run reduction (Docker) |
 | `eis-reduce-events` | Mantid time-resolved reduction (Docker) |
 
@@ -216,41 +211,6 @@ create-model cu_thf data.txt
 
 # Copy an existing model as a starting point
 cp models/cu_thf.py models/my_model.py
-```
-
-
-## MCP Server (AI Assistant Integration)
-
-The MCP server exposes analysis tools to LLMs via the
-[Model Context Protocol](https://modelcontextprotocol.io/).
-
-### Claude Desktop / VS Code Copilot
-
-Add to your MCP configuration (e.g. `mcp.json` or `claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "analyzer-tools": {
-      "command": "fastmcp",
-      "args": ["run", "analyzer_tools/mcp_server.py"],
-      "cwd": "/path/to/analyzer",
-      "env": {
-        "PYTHONPATH": "/path/to/analyzer"
-      }
-    }
-  }
-}
-```
-
-Replace `/path/to/analyzer` with the absolute path to this repository.
-
-Available MCP tools: `run_fit`, `assess_partial_data`, `extract_eis_intervals`,
-`list_available_data`, `list_available_models`.
-
-```bash
-# Run the server manually for testing
-analyzer-mcp
 ```
 
 

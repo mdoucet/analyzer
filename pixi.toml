@@ -23,5 +23,4 @@ lr_reduction = { git = "https://github.com/neutrons/LiquidsReflectometer.git", b
 # ---------- Tasks ----------
 [tasks]
 test = { cmd = "python -m pytest tests/ -v --tb=short", description = "Run analyzer-tools test suite" }
-mcp = { cmd = "analyzer-mcp", description = "Start the MCP server" }
 tools = { cmd = "analyzer-tools --list-tools", description = "List available tools" }

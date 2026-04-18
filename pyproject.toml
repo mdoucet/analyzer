@@ -33,7 +33,6 @@ dependencies = [
     "tqdm",
     "click",
     "scipy",
-    "fastmcp",
     "pyarrow",
     "pandas",
     "lmfit",
@@ -62,7 +61,6 @@ assess-result = "analyzer_tools.cli:result_assessor_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
 eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
 iceberg-packager = "analyzer_tools.cli:iceberg_packager_cli"
-analyzer-mcp = "analyzer_tools.mcp_server:main"
 eis-reduce-events = "analyzer_tools.cli:eis_reduce_events_cli"
 simple-reduction = "analyzer_tools.cli:simple_reduction_cli"
 
