@@ -178,6 +178,18 @@ def iceberg_packager_cli():
     main()
 
 
+def theta_offset_cli():
+    """Command-line interface for theta offset calculator."""
+    from .analysis.theta_offset import main
+    main()
+
+
+def batch_cli():
+    """Command-line interface for manifest batch runner."""
+    from .batch import main
+    main()
+
+
 def eis_reduce_events_cli():
     """Command-line interface for Mantid EIS event reduction."""
     from .reduction.eis_reduce_events import main

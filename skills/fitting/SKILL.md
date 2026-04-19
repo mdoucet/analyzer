@@ -76,6 +76,10 @@ assess-result results/218281_cu_thf 218281 cu_thf
 3. Generates reflectivity plot (data vs fit) and SLD profile with 90% confidence bands
 4. Writes/appends to the markdown report
 
+> **Tip:** For deeper, LLM-powered evaluation (residual structure analysis,
+> physical plausibility, actionable suggestions), also run `aure evaluate`
+> after `assess-result`. See the **fit-evaluation** skill for details.
+
 ### Output files
 
 | File | Contents |

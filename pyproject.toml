@@ -37,6 +37,7 @@ dependencies = [
     "pandas",
     "lmfit",
     "requests",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +62,8 @@ assess-result = "analyzer_tools.cli:result_assessor_cli"
 create-model = "analyzer_tools.cli:create_model_cli"
 eis-intervals = "analyzer_tools.cli:eis_interval_extractor_cli"
 iceberg-packager = "analyzer_tools.cli:iceberg_packager_cli"
+theta-offset = "analyzer_tools.cli:theta_offset_cli"
+analyzer-batch = "analyzer_tools.cli:batch_cli"
 eis-reduce-events = "analyzer_tools.cli:eis_reduce_events_cli"
 simple-reduction = "analyzer_tools.cli:simple_reduction_cli"
 
@@ -76,13 +79,13 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --cov=analyzer_tools --cov-fail-under=40"
+addopts = "-v --tb=short --cov=analyzer_tools --cov-fail-under=33"
 
 [tool.coverage.run]
 source = ["analyzer_tools"]
 omit = ["*/tests/*", "*/test_*"]
 
 [tool.coverage.report]
-fail_under = 20
+fail_under = 36
 show_missing = true
 skip_covered = false

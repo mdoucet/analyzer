@@ -41,7 +41,40 @@ Consult these when you need to understand how to use a tool, what inputs/outputs
 - `skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
 - `skills/fitting/` — run-fit → assess-result → adjust model workflow
 - `skills/partial-assessment/` — Partial data overlap quality checks
+- `skills/theta-offset/` — Theta offset calculation, single and batch mode
 - `skills/time-resolved/` — EIS interval extraction and neutron event reduction
 - `skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
+- `skills/fit-evaluation/` — LLM-powered fit assessment via AuRE
+- `skills/distributable/` — Single-file summary skill for external users
 
+### Using skills in another repo
+
+Users who install the analyzer package (`pip install -e /path/to/analyzer`) can
+copy the distributable skill into their own project:
+
+```bash
+mkdir -p .github/skills/neutron-reflectometry-analyzer
+cp /path/to/analyzer/skills/distributable/SKILL.md \
+   .github/skills/neutron-reflectometry-analyzer/SKILL.md
+```
+
+This gives Copilot access to all CLI tools and workflows without needing the
+full analyzer repo as a workspace folder.
+
+
+## Keeping skills up to date
+
+When you modify code in `analyzer_tools/` or `models/`, check whether the
+change affects any skill documentation. Specifically:
+
+1. If a **CLI signature changes** (arguments, options, defaults), update the
+   matching skill in `skills/` **and** the distributable summary in
+   `skills/distributable/SKILL.md`.
+2. If a **new tool is added or removed** in `pyproject.toml` `[project.scripts]`,
+   add or remove it from `skills/distributable/SKILL.md` and list it in the
+   skills directory above.
+3. If **quality thresholds, column formats, or file naming conventions** change,
+   update `skills/data-organization/`, `skills/fitting/`, and the distributable skill.
+4. After any skill edit, always re-check `skills/distributable/SKILL.md` — it is
+   the single-file summary that external users rely on and must stay in sync.
 

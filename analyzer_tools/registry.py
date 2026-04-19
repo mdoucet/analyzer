@@ -105,6 +105,19 @@ TOOLS = {
             "iceberg-packager splits.json ./reduced template.xml --validate-only"
         ],
         data_type="both"
+    ),
+
+    "theta_offset": ToolInfo(
+        name="Theta Offset Calculator",
+        module="analyzer_tools.analysis.theta_offset",
+        description="Compute the theta offset for a Liquids Reflectometer (BL-4B) run by fitting the specular peak on the detector and comparing with the motor-log angle. Requires a NeXus event file and a pre-processed direct-beam file.",
+        usage="theta-offset <nexus_file> --db <db_file>",
+        examples=[
+            "theta-offset REF_L_226642.nxs.h5 --db DB_226559.dat",
+            "theta-offset REF_L_226642.nxs.h5 --db DB_226559.dat --ymin 135 --ymax 170",
+            "theta-offset REF_L_226642.nxs.h5 --db DB_226559.dat --log offsets.csv"
+        ],
+        data_type="both"
     )
 }
 

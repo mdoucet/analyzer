@@ -13,13 +13,30 @@ Requires ``mantid`` and ``lr_reduction``::
 
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import shutil
+import sys
 
 import click
 
 logger = logging.getLogger(__name__)
+
+
+def _read_offset_from_csv(csv_path: str, run_id: str) -> float:
+    """Read the theta offset for *run_id* from a theta-offset CSV file.
+
+    Looks for a row whose ``nexus`` column contains *run_id*.
+    """
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if run_id in row["nexus"]:
+                return float(row["offset"])
+    raise click.ClickException(
+        f"Run {run_id} not found in offset CSV: {csv_path}"
+    )
 
 
 @click.command()
@@ -37,8 +54,16 @@ logger = logging.getLogger(__name__)
     help="Directory for output files.",
 )
 @click.option(
-    "--theta-offset", default=0.0, show_default=True, type=float,
-    help="Theta offset to apply during reduction.",
+    "--theta-offset", default=None, type=float,
+    help="Theta offset to apply during reduction (mutually exclusive with --offset-csv).",
+)
+@click.option(
+    "--offset-csv", default=None, type=click.Path(exists=True),
+    help="CSV file produced by theta-offset batch (requires --offset-run).",
+)
+@click.option(
+    "--offset-run", default=None, type=str,
+    help="Run ID to look up in the offset CSV (e.g. '226642').",
 )
 @click.option(
     "-v", "--verbose", is_flag=True,
@@ -48,14 +73,35 @@ def main(
     event_file: str,
     template: str,
     output_dir: str,
-    theta_offset: float,
+    theta_offset: float | None,
+    offset_csv: str | None,
+    offset_run: str | None,
     verbose: bool,
 ) -> None:
-    """Reduce neutron events using a reduction template."""
+    """Reduce neutron events using a reduction template.
+
+    Provide theta offset as either a literal value (--theta-offset) or
+    looked up from a CSV file (--offset-csv + --offset-run).
+    """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    # Resolve theta offset
+    if offset_csv is not None:
+        if theta_offset is not None:
+            raise click.UsageError(
+                "--theta-offset and --offset-csv are mutually exclusive."
+            )
+        if offset_run is None:
+            raise click.UsageError(
+                "--offset-csv requires --offset-run."
+            )
+        theta_offset = _read_offset_from_csv(offset_csv, offset_run)
+        logger.info("Offset from CSV: run %s → %+.4f°", offset_run, theta_offset)
+    elif theta_offset is None:
+        theta_offset = 0.0
 
     from . import MantidNotAvailableError
     try:
@@ -67,13 +113,33 @@ def main(
 
     import mantid
     import mantid.simpleapi as api
+
+    # lr_reduction imports plot_publisher at module level (output.py and
+    # web_report.py), but we don't need it.  Provide a stub that accepts
+    # any attribute access so all ``from plot_publisher import X`` succeed.
+    import types
+    if "plot_publisher" not in sys.modules:
+        _stub = types.ModuleType("plot_publisher")
+        _stub.__getattr__ = lambda name: lambda *a, **kw: None  # type: ignore[attr-defined]
+        sys.modules["plot_publisher"] = _stub
+
     from lr_reduction import workflow
 
     mantid.kernel.config.setLogLevel(3)
 
+    # Tell Mantid where to find data files by run number.  In production
+    # the facility's data catalog handles this; here we point at the
+    # directory containing the event files.
+    data_dir = os.path.dirname(os.path.abspath(event_file))
+    mantid.config.appendDataSearchDir(data_dir)
+    mantid.config["default.facility"] = "SNS"
+    mantid.config["default.instrument"] = "REF_L"
+
     logger.info("Loading event data: %s", event_file)
     ws = api.LoadEventNexus(event_file)
     logger.info("Workspace: %d events", ws.getNumberEvents())
+
+    os.makedirs(output_dir, exist_ok=True)
 
     logger.info("Reducing with template: %s", template)
     first_run_of_set = workflow.reduce(
