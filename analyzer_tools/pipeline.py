@@ -638,25 +638,25 @@ def run_pipeline(
     "--data-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Directory with combined data. Defaults to config.ini.",
+    help="Directory with combined data. Defaults to ANALYZER_COMBINED_DATA_DIR.",
 )
 @click.option(
     "--partial-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Directory with partial data. Defaults to config.ini.",
+    help="Directory with partial data. Defaults to ANALYZER_PARTIAL_DATA_DIR.",
 )
 @click.option(
     "--results-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Top-level results directory. Defaults to config.ini.",
+    help="Top-level results directory. Defaults to ANALYZER_RESULTS_DIR.",
 )
 @click.option(
     "--reports-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Top-level reports directory. Defaults to config.ini.",
+    help="Top-level reports directory. Defaults to ANALYZER_REPORTS_DIR.",
 )
 @click.option("--reduction-gate/--no-reduction-gate", default=True, show_default=True)
 @click.option("--chi2-threshold", type=float, default=3.0, show_default=True)
@@ -688,7 +688,7 @@ def main(
     """Run the analyzer pipeline for a single sample.
 
     SAMPLE is either a path to a markdown file (YAML frontmatter + body) or
-    a bare set ID (auto-discovers data using config.ini defaults).
+    a bare set ID (auto-discovers data using env-var defaults).
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     from analyzer_tools.config_utils import get_config

@@ -10,17 +10,14 @@ from click.testing import CliRunner
 from analyzer_tools.analysis import run_fit
 
 
-def _write_config(tmp: Path) -> None:
-    """Minimal config.ini for the CLI."""
-    (tmp / "config.ini").write_text(
-        "[paths]\n"
-        "combined_data_dir = data/combined\n"
-        "partial_data_dir = data/partial\n"
-        "results_dir = results\n"
-        "reports_dir = reports\n"
-        "models_dir = models\n"
-        "combined_data_template = REFL_{set_id}_combined_data_auto.txt\n"
-    )
+def _set_config_env(monkeypatch, tmp: Path) -> None:
+    """Point config env vars to a tmp directory layout."""
+    monkeypatch.setenv("ANALYZER_COMBINED_DATA_DIR", "data/combined")
+    monkeypatch.setenv("ANALYZER_PARTIAL_DATA_DIR", "data/partial")
+    monkeypatch.setenv("ANALYZER_RESULTS_DIR", "results")
+    monkeypatch.setenv("ANALYZER_REPORTS_DIR", "reports")
+    monkeypatch.setenv("ANALYZER_MODELS_DIR", "models")
+    monkeypatch.setenv("ANALYZER_COMBINED_DATA_TEMPLATE", "REFL_{set_id}_combined_data_auto.txt")
 
 
 def test_build_aure_command_basic() -> None:
@@ -49,7 +46,7 @@ def test_build_aure_command_extra_data() -> None:
 
 
 def test_run_fit_cli_dry_run_prints_aure_command(tmp_path: Path, monkeypatch) -> None:
-    _write_config(tmp_path)
+    _set_config_env(monkeypatch, tmp_path)
     data_dir = tmp_path / "data" / "combined"
     data_dir.mkdir(parents=True)
     data_file = data_dir / "REFL_218281_combined_data_auto.txt"
@@ -69,7 +66,7 @@ def test_run_fit_cli_dry_run_prints_aure_command(tmp_path: Path, monkeypatch) ->
 
 
 def test_sample_description_from_file(tmp_path: Path, monkeypatch) -> None:
-    _write_config(tmp_path)
+    _set_config_env(monkeypatch, tmp_path)
     data_dir = tmp_path / "data" / "combined"
     data_dir.mkdir(parents=True)
     (data_dir / "REFL_1_combined_data_auto.txt").write_text("x\n")

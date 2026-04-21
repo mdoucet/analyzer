@@ -175,9 +175,9 @@ Cu thickness 500.102"""
         os.makedirs(test_data_dir)
         
         with patch('analyzer_tools.analysis.result_assessor.assess_result') as mock_assess:
-            with patch('analyzer_tools.analysis.result_assessor._get_config') as mock_get_config:
+            with patch('analyzer_tools.analysis.result_assessor.get_config') as mock_get_config:
                 mock_config_instance = MagicMock()
-                mock_config_instance.get.return_value = self.reports_dir
+                mock_config_instance.get_reports_dir.return_value = self.reports_dir
                 mock_get_config.return_value = mock_config_instance
                 
                 result = runner.invoke(

@@ -29,7 +29,7 @@ RUN pixi install
 
 # ---------- analyzer-tools (pip inside the pixi env) ----------
 # Copy project files for pip install
-COPY pyproject.toml README.md requirements.txt config.ini ./
+COPY pyproject.toml README.md .env.example ./
 COPY analyzer_tools/ analyzer_tools/
 COPY models/ models/
 COPY scripts/ scripts/

@@ -38,6 +38,7 @@ dependencies = [
     "lmfit",
     "requests",
     "pyyaml",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]

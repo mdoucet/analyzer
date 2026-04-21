@@ -1,7 +1,7 @@
 import os
 import sys
 import importlib
-import configparser
+from analyzer_tools.config_utils import get_config
 import shlex
 import shutil
 import subprocess
@@ -68,11 +68,7 @@ def execute_fit(model_name, data_file, output_dir):
     return output_dir
 
 
-def _get_config():
-    """Load configuration from config.ini."""
-    config = configparser.ConfigParser()
-    config.read("config.ini")
-    return config
+
 
 
 # ---------------------------------------------------------------------------
@@ -185,16 +181,16 @@ def main(
         run-fit 218281 cu_thf -d "Cu/Ti on Si in dTHF"
         run-fit 218281 cu_thf -d sample.md --dry-run
     """
-    config = _get_config()
+    config = get_config()
 
     if data_dir is None:
-        data_dir = config.get("paths", "combined_data_dir")
+        data_dir = config.get_combined_data_dir()
     if results_dir is None:
-        results_dir = config.get("paths", "results_dir")
+        results_dir = config.get_results_dir()
     if reports_dir is None:
-        reports_dir = config.get("paths", "reports_dir")
+        reports_dir = config.get_reports_dir()
 
-    data_file_template = config.get("paths", "combined_data_template")
+    data_file_template = config.get_combined_data_template()
     data_file = os.path.join(data_dir, data_file_template.format(set_id=set_id))
     model_suffix = model_name or "aure"
     output_dir = os.path.join(results_dir, f"{set_id}_{model_suffix}")

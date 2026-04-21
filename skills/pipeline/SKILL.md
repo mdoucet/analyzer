@@ -19,7 +19,7 @@ One command drives the full analyzer workflow for a single sample:
 analyze-sample path/to/sample_218281.md
 ```
 
-or, with defaults from `config.ini`:
+or, with defaults from the env vars (`.env` / `ANALYZER_*`):
 
 ```
 analyze-sample 218281

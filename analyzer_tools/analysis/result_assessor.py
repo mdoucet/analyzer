@@ -9,7 +9,7 @@ import json
 import shutil
 import subprocess
 from datetime import datetime
-import configparser
+from analyzer_tools.config_utils import get_config
 from typing import Any, Dict, List, Optional
 
 import click
@@ -181,10 +181,6 @@ def assess_result(directory, set_id, model_name, reports_dir):
     plt.xscale("log")
     plt.yscale("log")
     plt.legend(frameon=False)
-
-    # Save the plot
-    config = configparser.ConfigParser()
-    config.read("config.ini")
 
     if not os.path.exists(reports_dir):
         os.makedirs(reports_dir)
@@ -400,11 +396,7 @@ def assess_result(directory, set_id, model_name, reports_dir):
     print(f"Report {report_file} updated.")
 
 
-def _get_config():
-    """Load configuration from config.ini."""
-    config = configparser.ConfigParser()
-    config.read("config.ini")
-    return config
+
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +532,7 @@ def append_aure_section_to_report(report_path: str, evaluation: Dict[str, Any]) 
     "--output-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Directory to save reports. Defaults to config.ini reports_dir.",
+    help="Directory to save reports. Defaults to ANALYZER_REPORTS_DIR env var.",
 )
 @click.option(
     "--skip-aure-eval",
@@ -594,10 +586,10 @@ def main(
     
     MODEL_NAME: Name of the model used for the fit.
     """
-    config = _get_config()
-    
+    config = get_config()
+
     if output_dir is None:
-        output_dir = config.get("paths", "reports_dir")
+        output_dir = config.get_reports_dir()
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

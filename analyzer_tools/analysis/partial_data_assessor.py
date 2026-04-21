@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 from datetime import datetime
-import configparser
+from analyzer_tools.config_utils import get_config
 from typing import Optional
 
 import click
@@ -303,11 +303,7 @@ def maybe_llm_commentary(metrics: dict, *, enabled: bool | None) -> str | None:
         return None
 
 
-def _get_config():
-    """Load config.ini for default paths."""
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    return config
+
 
 
 @click.command()
@@ -316,13 +312,13 @@ def _get_config():
     '--data-dir',
     type=click.Path(exists=True, file_okay=False),
     default=None,
-    help='Directory containing partial data files. Defaults to config.ini value.'
+    help='Directory containing partial data files. Defaults to ANALYZER_PARTIAL_DATA_DIR env var.'
 )
 @click.option(
     '--output-dir',
     type=click.Path(file_okay=False),
     default=None,
-    help='Directory for output reports and plots. Defaults to config.ini value.'
+    help='Directory for output reports and plots. Defaults to ANALYZER_REPORTS_DIR env var.'
 )
 @click.option(
     '--llm-commentary/--no-llm-commentary',
@@ -356,12 +352,12 @@ def main(set_id: str, data_dir: Optional[str], output_dir: Optional[str],
       assess-partial 218281 --data-dir ./data/partial --output-dir ./reports
       assess-partial 218281 --llm-commentary --json
     """
-    config = _get_config()
-    
+    config = get_config()
+
     if data_dir is None:
-        data_dir = config.get('paths', 'partial_data_dir')
+        data_dir = config.get_partial_data_dir()
     if output_dir is None:
-        output_dir = config.get('paths', 'reports_dir')
+        output_dir = config.get_reports_dir()
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

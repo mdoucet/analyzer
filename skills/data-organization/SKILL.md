@@ -11,7 +11,7 @@ description: >
 
 ## Directory Layout
 
-All paths are relative to the repository root and configurable via `config.ini`.
+All paths are relative to the repository root and configurable via `.env` (or environment variables).
 
 | Directory | Default Path | Contents |
 |-----------|-------------|----------|
@@ -58,18 +58,17 @@ A reflectivity curve is plotted as **R vs Q**, with dR as error bars, typically 
 
 ## Configuration
 
-Edit `config.ini` to set data paths:
+Copy `.env.example` to `.env` and set data paths:
 
-```ini
-[paths]
-results_dir = results
-combined_data_dir = data/combined
-partial_data_dir = data/partial
-reports_dir = reports
-combined_data_template = REFL_{set_id}_combined_data_auto.txt
+```dotenv
+ANALYZER_RESULTS_DIR=results
+ANALYZER_COMBINED_DATA_DIR=data/combined
+ANALYZER_PARTIAL_DATA_DIR=data/partial
+ANALYZER_REPORTS_DIR=reports
+ANALYZER_COMBINED_DATA_TEMPLATE=REFL_{set_id}_combined_data_auto.txt
 ```
 
-The `combined_data_template` uses `{set_id}` as a placeholder that tools replace with the actual set ID.
+The `ANALYZER_COMBINED_DATA_TEMPLATE` uses `{set_id}` as a placeholder that tools replace with the actual set ID.
 
 ## Discovering Available Data
 

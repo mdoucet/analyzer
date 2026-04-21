@@ -16,7 +16,7 @@ for both GitHub Copilot and GEMINI. This project is still in the prototype phase
 1. Install VS Code and enable GitHub Copilot
 2. Follow the [Installation](#installation) steps below (install [AuRE](https://github.com/neutrons-ai/aure) too if you want LLM features)
 3. Make sure your data is available locally
-4. Edit `config.ini` to point `combined_data_dir` and `partial_data_dir` at your data
+4. Copy `.env.example` to `.env` and point `ANALYZER_COMBINED_DATA_DIR` and `ANALYZER_PARTIAL_DATA_DIR` at your data
 5. Verify the LLM endpoint is reachable (optional but recommended):
 
 ```bash
@@ -128,16 +128,23 @@ analyzer-tools --help-tool partial # detailed help for a tool
 
 ## Configuration
 
-Edit `config.ini` to customize paths:
+Copy `.env.example` to `.env` and edit the values:
 
-```ini
-[paths]
-results_dir = results
-combined_data_dir = data/combined
-partial_data_dir = data/partial
-reports_dir = reports
-combined_data_template = REFL_{set_id}_combined_data_auto.txt
+```bash
+cp .env.example .env
 ```
+
+```dotenv
+# Paths
+ANALYZER_RESULTS_DIR=results
+ANALYZER_COMBINED_DATA_DIR=data/combined
+ANALYZER_PARTIAL_DATA_DIR=data/partial
+ANALYZER_REPORTS_DIR=reports
+ANALYZER_COMBINED_DATA_TEMPLATE=REFL_{set_id}_combined_data_auto.txt
+ANALYZER_MODELS_DIR=models
+```
+
+Variables already set in your shell take precedence over the `.env` file.
 
 
 ## Data Organization

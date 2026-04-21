@@ -34,8 +34,8 @@ assess-partial 218386 --data-dir data/partial --output-dir reports
 | Option | Default | Description |
 |--------|---------|-------------|
 | `SET_ID` | (required) | Numeric identifier for the measurement set |
-| `--data-dir` | from `config.ini` | Directory containing partial data files |
-| `--output-dir` | from `config.ini` | Directory for report output |
+| `--data-dir` | from `ANALYZER_PARTIAL_DATA_DIR` | Directory containing partial data files |
+| `--output-dir` | from `ANALYZER_REPORTS_DIR` | Directory for report output |
 
 ## What It Does
 

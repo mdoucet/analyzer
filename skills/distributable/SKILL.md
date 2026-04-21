@@ -29,7 +29,7 @@ analyzer-tools --help
 
 ## Data Conventions
 
-### Directory layout (configured in `config.ini`)
+### Directory layout (configured via `.env` / `ANALYZER_*` env vars)
 
 | Directory | Default | Contents |
 |-----------|---------|----------|

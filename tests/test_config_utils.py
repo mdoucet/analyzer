@@ -1,210 +1,141 @@
 """
 Tests for analyzer_tools.config_utils module.
+
+Configuration is now read from environment variables (optionally loaded from
+a .env file via python-dotenv).  Tests use `monkeypatch` to set env vars and
+reset the global singleton between tests.
 """
 
-import tempfile
 import os
-from unittest.mock import patch
 
+import pytest
+
+import analyzer_tools.config_utils as config_mod
 from analyzer_tools.config_utils import Config, get_config, get_data_organization_info
+
+
+@pytest.fixture(autouse=True)
+def reset_singleton(monkeypatch):
+    """Reset the global _config_instance before every test."""
+    monkeypatch.setattr(config_mod, "_config_instance", None)
+    yield
 
 
 class TestConfig:
     """Test the Config class."""
-    
-    def test_config_with_existing_file(self):
-        """Test loading config from existing file."""
-        config_content = """[paths]
-results_dir = /tmp/test_fits
-combined_data_dir = test_combined
-partial_data_dir = test_partial
-reports_dir = test_reports
-combined_data_template = TEST_{set_id}_data.txt
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config_content)
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            assert config.get_results_dir() == "/tmp/test_fits"
-            assert config.get_combined_data_dir() == "test_combined"
-            assert config.get_partial_data_dir() == "test_partial"
-            assert config.get_reports_dir() == "test_reports"
-            assert config.get_combined_data_template() == "TEST_{set_id}_data.txt"
-        finally:
-            os.unlink(config_file)
-    
-    def test_config_with_missing_file(self):
-        """Test config behavior when file doesn't exist."""
-        config = Config("nonexistent_config.ini")
-        
-        # Should fall back to defaults
-        assert config.get_results_dir() == "/tmp/fits"
+
+    def test_defaults_when_no_env_vars(self, monkeypatch):
+        """With no env vars the built-in defaults are returned."""
+        for key in config_mod._DEFAULTS:
+            monkeypatch.delenv(key, raising=False)
+
+        config = Config()
+        assert config.get_results_dir() == "results"
         assert config.get_combined_data_dir() == "data/combined"
         assert config.get_partial_data_dir() == "data/partial"
         assert config.get_reports_dir() == "reports"
         assert config.get_combined_data_template() == "REFL_{set_id}_combined_data_auto.txt"
-    
-    def test_config_models_dir_default(self):
-        """Test models directory defaults to 'models' when not configured."""
-        config = Config("nonexistent_config.ini")
         assert config.get_models_dir() == "models"
-    
-    def test_config_models_dir_configured(self):
-        """Test models directory when configured."""
-        config_content = """[paths]
-results_dir = /tmp/fits
-models_dir = custom_models
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config_content)
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            assert config.get_models_dir() == "custom_models"
-        finally:
-            os.unlink(config_file)
-    
-    def test_get_path_method(self):
-        """Test the generic get_path method."""
-        config_content = """[paths]
-custom_path = /custom/location
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config_content)
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            assert config.get_path('custom_path') == "/custom/location"
-        finally:
-            os.unlink(config_file)
-    
-    def test_config_empty_file(self):
-        """Test behavior with empty config file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write("")  # Empty file
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            # Empty file should trigger _set_defaults, so should have default values
-            assert config.get_results_dir() == "/tmp/fits"
-            assert config.get_combined_data_dir() == "data/combined"
-        finally:
-            os.unlink(config_file)
-    
-    def test_config_missing_paths_section(self):
-        """Test behavior when paths section is missing."""
-        config_content = """[other_section]
-some_key = some_value
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config_content)
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            # Missing paths section should trigger _set_defaults
-            assert config.get_results_dir() == "/tmp/fits"
-        finally:
-            os.unlink(config_file)
 
-    def test_config_reload_functionality(self):
-        """Test that config can be reloaded with different file."""
-        # Create first config
-        config1_content = """[paths]
-results_dir = /tmp/config1
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config1_content)
-            config_file1 = f.name
-        
-        # Create second config  
-        config2_content = """[paths]
-results_dir = /tmp/config2
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config2_content)
-            config_file2 = f.name
-        
-        try:
-            config1 = Config(config_file1)
-            assert config1.get_results_dir() == "/tmp/config1"
-            
-            config2 = Config(config_file2)
-            assert config2.get_results_dir() == "/tmp/config2"
-        finally:
-            os.unlink(config_file1)
-            os.unlink(config_file2)
+    def test_env_vars_override_defaults(self, monkeypatch):
+        """Environment variables take precedence over built-in defaults."""
+        monkeypatch.setenv("ANALYZER_RESULTS_DIR", "/tmp/test_fits")
+        monkeypatch.setenv("ANALYZER_COMBINED_DATA_DIR", "test_combined")
+        monkeypatch.setenv("ANALYZER_PARTIAL_DATA_DIR", "test_partial")
+        monkeypatch.setenv("ANALYZER_REPORTS_DIR", "test_reports")
+        monkeypatch.setenv("ANALYZER_COMBINED_DATA_TEMPLATE", "TEST_{set_id}_data.txt")
 
-    def test_config_special_characters_in_paths(self):
-        """Test config with special characters in paths."""
-        config_content = """[paths]
-results_dir = /tmp/test-fits_dir with spaces
-combined_data_dir = data/combined-data
-"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(config_content)
-            config_file = f.name
-        
-        try:
-            config = Config(config_file)
-            assert config.get_results_dir() == "/tmp/test-fits_dir with spaces"
-            assert config.get_combined_data_dir() == "data/combined-data"
-        finally:
-            os.unlink(config_file)
+        config = Config()
+        assert config.get_results_dir() == "/tmp/test_fits"
+        assert config.get_combined_data_dir() == "test_combined"
+        assert config.get_partial_data_dir() == "test_partial"
+        assert config.get_reports_dir() == "test_reports"
+        assert config.get_combined_data_template() == "TEST_{set_id}_data.txt"
+
+    def test_models_dir_default(self, monkeypatch):
+        """models_dir defaults to 'models' when env var is absent."""
+        monkeypatch.delenv("ANALYZER_MODELS_DIR", raising=False)
+        config = Config()
+        assert config.get_models_dir() == "models"
+
+    def test_models_dir_from_env(self, monkeypatch):
+        """models_dir reads ANALYZER_MODELS_DIR."""
+        monkeypatch.setenv("ANALYZER_MODELS_DIR", "custom_models")
+        config = Config()
+        assert config.get_models_dir() == "custom_models"
+
+    def test_results_dir_env(self, monkeypatch):
+        """get_results_dir returns ANALYZER_RESULTS_DIR."""
+        monkeypatch.setenv("ANALYZER_RESULTS_DIR", "/some/results")
+        assert Config().get_results_dir() == "/some/results"
+
+    def test_independent_instances_see_same_env(self, monkeypatch):
+        """Two Config() objects created with the same env return the same values."""
+        monkeypatch.setenv("ANALYZER_RESULTS_DIR", "/shared")
+        c1 = Config()
+        c2 = Config()
+        assert c1.get_results_dir() == c2.get_results_dir() == "/shared"
+
+    def test_dotenv_file_is_loaded(self, monkeypatch, tmp_path):
+        """Config loads values from a dotenv file when dotenv_path is given."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("ANALYZER_RESULTS_DIR=/from/dotenv\n")
+        # Make sure the env var is not already set so dotenv value is picked up.
+        monkeypatch.delenv("ANALYZER_RESULTS_DIR", raising=False)
+
+        config = Config(dotenv_path=str(env_file))
+        assert config.get_results_dir() == "/from/dotenv"
+
+    def test_env_var_wins_over_dotenv(self, monkeypatch, tmp_path):
+        """An existing env var is NOT overridden by the .env file (override=False)."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("ANALYZER_RESULTS_DIR=/from/dotenv\n")
+        monkeypatch.setenv("ANALYZER_RESULTS_DIR", "/from/shell")
+
+        config = Config(dotenv_path=str(env_file))
+        assert config.get_results_dir() == "/from/shell"
+
+    def test_get_path_known_key(self, monkeypatch):
+        """get_path accepts an ANALYZER_-prefixed key."""
+        monkeypatch.setenv("ANALYZER_REPORTS_DIR", "my_reports")
+        config = Config()
+        assert config.get_path("ANALYZER_REPORTS_DIR") == "my_reports"
+
+    def test_get_path_auto_prefix(self, monkeypatch):
+        """get_path auto-prefixes a bare key with ANALYZER_."""
+        monkeypatch.setenv("ANALYZER_REPORTS_DIR", "auto_reports")
+        config = Config()
+        assert config.get_path("reports_dir") == "auto_reports"
 
 
 class TestGlobalConfig:
     """Test global config functions."""
-    
-    @patch('analyzer_tools.config_utils._config_instance', None)
-    def test_get_config_creates_instance(self):
-        """Test that get_config creates a global instance."""
-        config1 = get_config("nonexistent_test.ini")
-        config2 = get_config("nonexistent_test.ini")
-        
-        # Should return the same instance
-        assert config1 is config2
-    
-    def test_get_data_organization_info(self):
-        """Test data organization info function."""
+
+    def test_get_config_returns_singleton(self):
+        """get_config() returns the same object on repeated calls."""
+        c1 = get_config()
+        c2 = get_config()
+        assert c1 is c2
+
+    def test_get_config_creates_from_defaults(self, monkeypatch):
+        """get_config() returns a Config with default values."""
+        for key in config_mod._DEFAULTS:
+            monkeypatch.delenv(key, raising=False)
+
+        config = get_config()
+        assert config.get_combined_data_dir() == "data/combined"
+
+    def test_get_data_organization_info_keys(self):
+        """get_data_organization_info() returns dict with all expected keys."""
         info = get_data_organization_info()
-        
-        # Should return a dict with all expected keys
-        expected_keys = {
-            'combined_data_dir', 'partial_data_dir', 'reports_dir', 
-            'results_dir', 'combined_data_template', 'models_dir'
+        expected = {
+            "combined_data_dir", "partial_data_dir", "reports_dir",
+            "results_dir", "combined_data_template", "models_dir",
         }
-        assert set(info.keys()) == expected_keys
-        
-        # Should have default values when no config exists
-        assert isinstance(info['combined_data_dir'], str)
-        assert isinstance(info['partial_data_dir'], str)
-        assert isinstance(info['combined_data_template'], str)
+        assert set(info.keys()) == expected
 
-
-class TestConfigError:
-    """Test config error handling."""
-    
-    def test_config_with_malformed_file(self):
-        """Test behavior with malformed config file."""
-        malformed_content = "this is not valid ini format"
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(malformed_content)
-            config_file = f.name
-        
-        try:
-            # Config should handle parsing errors and fall back to defaults
-            config = Config(config_file)
-            # Even with malformed file, defaults should be set
-            assert config.get_combined_data_dir() == "data/combined"  # Default
-        except Exception:
-            # If exception is raised, that's also acceptable behavior
-            pass
-        finally:
-            os.unlink(config_file)
+    def test_get_data_organization_info_values_are_strings(self):
+        """All values in data organization info are strings."""
+        info = get_data_organization_info()
+        for k, v in info.items():
+            assert isinstance(v, str), f"Expected str for {k}, got {type(v)}"
