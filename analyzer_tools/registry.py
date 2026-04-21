@@ -58,27 +58,16 @@ TOOLS = {
     ),
     
     "create_model_script": ToolInfo(
-        name="Model Script Creator",
-        module="analyzer_tools.analysis.create_model_script",
-        description="Generate fitting scripts by combining model definitions with fitting commands. Useful for batch processing and reproducible analysis.",
-        usage="create-model <model_name> <data_file> [--model_dir DIR] [--output_dir DIR]",
+        name="Model Script Creator (AuRE)",
+        module="analyzer_tools.analysis.model_from_aure",
+        description="Generate an analyzer-convention refl1d model script from an AuRE ModelDefinition JSON (preferred) or a plain-English sample description (calls `aure analyze -m 0`). A legacy mode wraps an existing models/<name>.py into a fit script.",
+        usage="create-model <definition.json|sample_description> [DATA_FILE] [--out models/<name>.py] [--legacy]",
         examples=[
-            "create-model cu_thf data.txt",
-            "create-model cu_thf data.txt --output_dir custom_output"
+            "create-model path/to/model_initial.json --out models/cu_thf.py",
+            "create-model 'Cu/Ti on Si in dTHF' data/combined/REFL_218281_combined_data_auto.txt --out models/cu_thf.py",
+            "create-model cu_thf data.txt --legacy"
         ],
         data_type="combined"
-    ),
-    
-    "create_temporary_model": ToolInfo(
-        name="Temporary Model Creator",
-        module="analyzer_tools.analysis.create_temporary_model",
-        description="Create temporary models with adjusted parameter ranges for sensitivity analysis and parameter exploration.",
-        usage="create-temporary-model <base_model> <new_model> --adjust <param> <min>,<max>",
-        examples=[
-            "create-temporary-model cu_thf cu_thf_temp --adjust Cu thickness 500,800",
-            "create-temporary-model cu_thf cu_thf_wide --adjust Cu thickness 300,1000"
-        ],
-        data_type="both"
     ),
     
     "eis_interval_extractor": ToolInfo(
@@ -118,6 +107,32 @@ TOOLS = {
             "theta-offset REF_L_226642.nxs.h5 --db DB_226559.dat --log offsets.csv"
         ],
         data_type="both"
+    ),
+
+    "analyze_sample": ToolInfo(
+        name="Sample Pipeline Orchestrator",
+        module="analyzer_tools.pipeline",
+        description="End-to-end pipeline for one sample: partial assessment → reduction-issue gate → AuRE model generation → AuRE fit → result assessment + AuRE evaluation. Emits a reduction_batch.yaml manifest when re-reduction is required, but never re-runs reduction automatically.",
+        usage="analyze-sample <sample.md|set_id> [--dry-run] [--no-reduction-gate]",
+        examples=[
+            "analyze-sample sample_218281.md",
+            "analyze-sample 218281 --dry-run",
+            "analyze-sample sample_218281.md --skip-aure-eval"
+        ],
+        data_type="both"
+    ),
+
+    "check_llm": ToolInfo(
+        name="LLM Health Check",
+        module="analyzer_tools.analysis.check_llm",
+        description="Verify that the analyzer's LLM integration is ready: the aure CLI is installed, aure.llm is importable, and aure check-llm reports a working endpoint. Run this at the start of an analysis session.",
+        usage="check-llm [--json] [--no-test]",
+        examples=[
+            "check-llm",
+            "check-llm --json",
+            "check-llm --no-test"
+        ],
+        data_type="both"
     )
 }
 
@@ -139,26 +154,22 @@ WORKFLOWS = {
         "name": "Standard Reflectivity Fitting",
         "description": "Complete workflow for fitting reflectivity data",
         "steps": [
-            "1. Use run_fit to perform initial fitting",
-            "2. Use result_assessor to evaluate fit quality",
-            "3. If poor fit, use create_temporary_model to adjust parameters",
-            "4. Re-run fitting with adjusted model",
-            "5. Generate final reports"
+            "1. Use create_model_script to generate a refl1d model (AuRE)",
+            "2. Use run_fit to perform fitting",
+            "3. Use result_assessor to evaluate fit quality and get an LLM verdict"
         ],
-        "tools": ["run_fit", "result_assessor", "create_temporary_model"]
+        "tools": ["create_model_script", "run_fit", "result_assessor"]
     },
-    
-    "parameter_exploration": {
-        "name": "Parameter Sensitivity Analysis",
-        "description": "Explore parameter sensitivity and uncertainty",
+
+    "full_pipeline": {
+        "name": "End-to-end Sample Pipeline",
+        "description": "Single-command pipeline from partial data to final report with reduction-issue gate.",
         "steps": [
-            "1. Start with standard fitting workflow",
-            "2. Use create_temporary_model to create variants with different parameter ranges",
-            "3. Run fits on multiple parameter sets",
-            "4. Use result_assessor to compare results",
-            "5. Identify sensitive parameters and optimal ranges"
+            "1. Write a sample_<id>.md with YAML frontmatter describing the sample",
+            "2. Run analyze-sample sample_<id>.md",
+            "3. If status is needs-reprocessing, edit and run reduction_batch.yaml with analyzer-batch, then re-run analyze-sample"
         ],
-        "tools": ["run_fit", "result_assessor", "create_temporary_model"]
+        "tools": ["analyze_sample"]
     },
     
     "time_resolved_eis": {

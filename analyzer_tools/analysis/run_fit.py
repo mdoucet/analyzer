@@ -2,6 +2,11 @@ import os
 import sys
 import importlib
 import configparser
+import shlex
+import shutil
+import subprocess
+from typing import List, Optional
+
 import click
 import numpy as np
 from refl1d.names import *
@@ -70,9 +75,50 @@ def _get_config():
     return config
 
 
+# ---------------------------------------------------------------------------
+# AuRE wrapper
+# ---------------------------------------------------------------------------
+
+
+def build_aure_command(
+    data_file: str,
+    sample_description: str,
+    output_dir: str,
+    *,
+    max_refinements: int = 5,
+    extra_data: Optional[List[str]] = None,
+    aure_executable: str = "aure",
+    extra_args: Optional[List[str]] = None,
+) -> List[str]:
+    """Build an ``aure analyze`` command line as a list of args."""
+    cmd: List[str] = [
+        aure_executable,
+        "analyze",
+        str(data_file),
+        sample_description,
+        "-o",
+        str(output_dir),
+        "-m",
+        str(int(max_refinements)),
+    ]
+    for extra in extra_data or []:
+        cmd.extend(["-d", str(extra)])
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
+
+def _read_sample_description(source: str) -> str:
+    """If *source* is a file path, return its contents; else return *source* verbatim."""
+    if os.path.isfile(source):
+        with open(source, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return source
+
+
 @click.command()
 @click.argument("set_id", type=str)
-@click.argument("model_name", type=str)
+@click.argument("model_name", type=str, required=False)
 @click.option(
     "--data-dir",
     type=click.Path(exists=True, file_okay=False),
@@ -91,22 +137,56 @@ def _get_config():
     default=None,
     help="Top level directory to store reports.",
 )
-def main(set_id: str, model_name: str, data_dir: str, results_dir: str, reports_dir: str):
+@click.option(
+    "--use-aure/--legacy",
+    default=None,
+    help="Force AuRE or legacy path. Auto-detects from --sample-description/-d if omitted.",
+)
+@click.option(
+    "-d",
+    "--sample-description",
+    "sample_description",
+    type=str,
+    default=None,
+    help="Sample description text or path to a markdown file. Enables AuRE mode.",
+)
+@click.option(
+    "-m",
+    "--max-refinements",
+    type=int,
+    default=5,
+    show_default=True,
+    help="AuRE refinement iterations (only used in --use-aure mode).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="In AuRE mode, print the command instead of running it.",
+)
+def main(
+    set_id: str,
+    model_name: Optional[str],
+    data_dir: Optional[str],
+    results_dir: Optional[str],
+    reports_dir: Optional[str],
+    use_aure: Optional[bool],
+    sample_description: Optional[str],
+    max_refinements: int,
+    dry_run: bool,
+):
     """
-    Execute a reflectivity fit using a specified model.
-    
-    SET_ID: The set ID of the data to fit (e.g., '218281').
-    
-    MODEL_NAME: Name of the model module in the models directory (e.g., 'cu_thf').
-    """
-    try:
-        from .result_assessor import assess_result
-    except ImportError:
-        from analyzer_tools.analysis.result_assessor import assess_result
+    Execute a reflectivity fit.
 
+    \b
+    Legacy mode (default when MODEL_NAME is a file in models/):
+        run-fit 218281 cu_thf
+    AuRE mode (when -d/--sample-description is given, or --use-aure is set):
+        run-fit 218281 cu_thf -d "Cu/Ti on Si in dTHF"
+        run-fit 218281 cu_thf -d sample.md --dry-run
+    """
     config = _get_config()
 
-    # Use config defaults if not provided
     if data_dir is None:
         data_dir = config.get("paths", "combined_data_dir")
     if results_dir is None:
@@ -116,12 +196,58 @@ def main(set_id: str, model_name: str, data_dir: str, results_dir: str, reports_
 
     data_file_template = config.get("paths", "combined_data_template")
     data_file = os.path.join(data_dir, data_file_template.format(set_id=set_id))
-    output_dir = os.path.join(results_dir, f"{set_id}_{model_name}")
-
+    model_suffix = model_name or "aure"
+    output_dir = os.path.join(results_dir, f"{set_id}_{model_suffix}")
     os.makedirs(output_dir, exist_ok=True)
 
-    execute_fit(model_name, data_file, output_dir)
+    # Decide mode.
+    if use_aure is None:
+        use_aure = sample_description is not None
 
+    if use_aure:
+        if sample_description is None:
+            raise click.BadParameter(
+                "--use-aure requires -d/--sample-description (text or markdown path)."
+            )
+        description = _read_sample_description(sample_description)
+        cmd = build_aure_command(
+            data_file=data_file,
+            sample_description=description,
+            output_dir=output_dir,
+            max_refinements=max_refinements,
+        )
+        printable = " ".join(shlex.quote(c) for c in cmd)
+        if dry_run:
+            click.echo(printable)
+            return
+        if shutil.which(cmd[0]) is None:
+            click.echo(
+                f"AuRE CLI '{cmd[0]}' not found on PATH. Install AuRE or re-run with --dry-run.",
+                err=True,
+            )
+            click.echo(f"Would run: {printable}", err=True)
+            sys.exit(2)
+        click.echo(f"Running: {printable}", err=True)
+        subprocess.run(cmd, check=True)
+        return
+
+    # Legacy path
+    if model_name is None:
+        raise click.BadParameter(
+            "MODEL_NAME is required in legacy mode. "
+            "Provide a models/<name>.py or use -d/--sample-description for AuRE mode."
+        )
+    click.echo(
+        "Note: legacy run-fit path is deprecated. Pass -d/--sample-description to use AuRE.",
+        err=True,
+    )
+
+    try:
+        from .result_assessor import assess_result
+    except ImportError:
+        from analyzer_tools.analysis.result_assessor import assess_result
+
+    execute_fit(model_name, data_file, output_dir)
     assess_result(output_dir, set_id, model_name, reports_dir)
 
 

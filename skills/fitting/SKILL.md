@@ -1,91 +1,126 @@
 ---
 name: fitting
 description: >
-  Reflectivity fitting workflow — run fits, assess results, adjust models, and iterate.
-  Covers run-fit, assess-result, create-model, and create-temporary-model tools.
-  USE FOR: fitting combined data to a model, evaluating fit quality, adjusting
-  parameter ranges, generating fit reports.
-  DO NOT USE FOR: partial data quality checks (see partial-assessment skill) or
-  data reduction (see time-resolved skill).
+  Reflectivity fitting workflow — generate a model, run fits, and evaluate
+  the result (assess-result + AuRE LLM evaluation).
+  USE FOR: fitting combined data, evaluating fit quality, iterating on a model.
+  DO NOT USE FOR: partial data quality checks (see partial-assessment skill),
+  data reduction (see time-resolved skill), or end-to-end pipelines for a
+  single sample (see pipeline skill — `analyze-sample`).
 ---
 
 # Reflectivity Fitting Workflow
 
 ## Overview
 
-The standard fitting workflow is:
+The standard single-fit workflow is:
 
-1. **`run-fit`** — Fit combined data to a model
-2. **`assess-result`** — Evaluate fit quality and parameter uncertainties
-3. If poor fit: **`create-temporary-model`** to adjust parameter ranges, then re-fit
+1. **`create-model`** — Generate an analyzer-convention refl1d script from an
+   AuRE `ModelDefinition` JSON **or** from a plain-English sample description.
+2. **`run-fit`** — Fit combined data to the model (wraps `aure analyze`).
+3. **`assess-result`** — Generate plots, parameter tables, and a markdown
+   report; automatically appends an `## LLM Evaluation (AuRE)` section when
+   AuRE is installed.
 
-## Step 1: Run a Fit
+For an end-to-end single-sample pipeline (partial checks → reduction gate →
+fit → evaluate), use **`analyze-sample`** instead. See the `pipeline` skill.
+
+## Step 1: Create a Model
+
+### From a sample description (preferred)
 
 ```bash
-run-fit <SET_ID> <MODEL_NAME>
+create-model "Cu/Ti bilayer on Si in deuterated THF. Expected 50 Å Cu on 20 Å CuOx." \
+             data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
 ```
+
+Shells out to `aure analyze -m 0` to produce a `ModelDefinition` and converts
+it to an analyzer-convention script with
+`create_fit_experiment(q, dq, data, errors)`.
+
+### From an existing `ModelDefinition` JSON
+
+```bash
+create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+```
+
+### Legacy mode (wrap an existing `models/<name>.py`)
+
+```bash
+create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
+```
+
+## Step 2: Run a Fit
+
+```bash
+run-fit <SET_ID> [MODEL_NAME] [options]
+```
+
+By default this calls `aure analyze` with the configured sample description.
+Use `--legacy` to run the old analyzer fitter.
 
 **Examples:**
+
 ```bash
-run-fit 218281 cu_thf
-run-fit 218386 cu_thf_no_oxide
+# Preferred: AuRE-driven fit from a sample description
+run-fit 218281 -d sample_218281.md
+
+# Legacy: fit a fixed model script
+run-fit 218281 cu_thf --legacy
 ```
 
-### What it does
+### What it does (AuRE mode)
 
-1. Loads combined data from `{combined_data_dir}/REFL_{SET_ID}_combined_data_auto.txt`
-2. Creates the model experiment by calling `create_fit_experiment(Q, dQ, R, dR)`
-3. Runs the DREAM MCMC algorithm (10,000 samples, 5,000 burn-in)
-4. Saves results to `{results_dir}/{SET_ID}_{MODEL_NAME}/`
+1. Reads the sample description (YAML frontmatter + markdown body, or plain text).
+2. Invokes `aure analyze <data_file> -o <results_dir> -m <max-refinements>`.
+3. Writes results to `results/<SET_ID>_<MODEL>/` including `problem.json`
+   (used by `aure evaluate`).
 
-### Important: Column order
+### Important: data column convention
 
-The data file columns are `Q, R, dR, dQ`, but the model function signature is `create_fit_experiment(q, dq, data, errors)`. The tool handles the mapping:
-
-```python
-_refl = np.loadtxt(data_file).T
-experiment = create_fit_experiment(_refl[0], _refl[3], _refl[1], _refl[2])
-#                                  Q         dQ        R         dR
-```
+The data file columns are `Q, R, dR, dQ`; model functions take
+`create_fit_experiment(q, dq, data, errors)`. Generated scripts handle the
+mapping — no manual swap needed.
 
 ### Output files
 
 | File | Contents |
 |------|----------|
 | `problem.par` | Fitted parameter values |
-| `problem-err.json` | Parameter uncertainties (JSON) |
-| `problem-1-expt.json` | Experiment definition with bounds |
+| `problem-err.json` | Parameter uncertainties |
+| `problem.json` | FitProblem definition (required by `aure evaluate`) |
 | `problem.out` | Overall fit statistics |
 | `*-refl.dat` | Reflectivity data with calculated fit values |
 
-## Step 2: Assess the Result
+## Step 3: Assess the Result
 
 ```bash
-assess-result <RESULTS_DIR> <SET_ID> <MODEL_NAME>
+assess-result <RESULTS_DIR> <SET_ID> <MODEL_NAME> [options]
 ```
 
 **Example:**
 ```bash
-assess-result results/218281_cu_thf 218281 cu_thf
+assess-result results/218281_cu_thf 218281 cu_thf \
+  --context "Cu/Ti bilayer on Si in deuterated THF"
 ```
 
 ### What it does
 
-1. Reads fit output files from the results directory
-2. Extracts chi-squared, parameter values, and uncertainties
-3. Generates reflectivity plot (data vs fit) and SLD profile with 90% confidence bands
-4. Writes/appends to the markdown report
-
-> **Tip:** For deeper, LLM-powered evaluation (residual structure analysis,
-> physical plausibility, actionable suggestions), also run `aure evaluate`
-> after `assess-result`. See the **fit-evaluation** skill for details.
+1. Reads fit output files.
+2. Extracts χ², parameter values, and uncertainties.
+3. Generates reflectivity plot (data vs fit) and SLD profile with 90% CL bands.
+4. Writes the markdown report.
+5. **Automatically runs `aure evaluate` when available** and appends an
+   `## LLM Evaluation (AuRE)` section with verdict, issues, suggestions, and
+   physical-plausibility concerns. Pass `--skip-aure-eval` to disable.
 
 ### Output files
 
 | File | Contents |
 |------|----------|
-| `report_{SET_ID}.md` | Markdown report with fit quality, parameter table, and plots |
-| `fit_result_{SET_ID}_{MODEL}_reflectivity.svg` | R vs Q plot (log-log, data + fit) |
+| `report_{SET_ID}.md` | Markdown report with fit quality, parameter table, plots, and LLM evaluation |
+| `fit_result_{SET_ID}_{MODEL}_reflectivity.svg` | R vs Q plot |
 | `fit_result_{SET_ID}_{MODEL}_profile.svg` | SLD profile with uncertainty band |
 | `sld_uncertainty_{SET_ID}_{MODEL}.txt` | SLD profile numerical data |
 
@@ -98,73 +133,66 @@ assess-result results/218281_cu_thf 218281 cu_thf
 | 3.0 – 5.0 | Acceptable | Consider adjusting model |
 | > 5.0 | Poor | Model likely needs revision |
 
-### Parameter table format
+### AuRE LLM evaluation fields
 
-The report includes a table with columns:
+The appended `## LLM Evaluation (AuRE)` section contains:
 
-| Layer | Parameter | Fitted Value | Uncertainty | Min | Max | Units |
-|-------|-----------|--------------|-------------|-----|-----|-------|
+| Field | Meaning |
+|-------|---------|
+| `verdict` / `acceptable` | Overall assessment |
+| `issues` | Concrete problems (boundary hits, residual structure, …) |
+| `suggestions` | Actionable next steps |
+| `physical_concerns` | Parameters that are physically implausible |
 
-Parameters are grouped by layer name.
-
-## Step 3: Adjust and Re-fit (if needed)
-
-If the fit quality is poor or parameters hit their bounds, create a modified model:
+To run the evaluation manually:
 
 ```bash
-create-temporary-model <BASE_MODEL> <NEW_MODEL> --adjust 'LAYER PARAM MIN,MAX'
+aure evaluate results/218281_cu_thf \
+  --context "Cu/Ti bilayer on Si in deuterated THF" --json
 ```
 
-**Example:**
-```bash
-# Widen Cu thickness range
-create-temporary-model cu_thf cu_thf_wide --adjust 'Cu thickness 300,1000'
+LLM configuration for AuRE: set `OPENAI_API_KEY` or configure
+`aure_config.yaml`; verify with `aure check-llm`.
 
-# Then re-fit with the new model
-run-fit 218281 cu_thf_wide
-assess-result results/218281_cu_thf_wide 218281 cu_thf_wide
-```
+## Step 4: Iterate if Needed
 
-Multiple adjustments:
-```bash
-create-temporary-model cu_thf cu_thf_custom \
-  --adjust 'Cu thickness 300,1000' \
-  --adjust 'material rho 2,8'
-```
+If the fit is poor or the AuRE evaluation is negative:
+
+- **Edit the model description** and re-run `create-model` → `run-fit` → `assess-result`.
+- Or edit `models/<name>.py` directly (change layer structure or parameter
+  `.range(...)` bounds) and re-fit.
+
+Common adjustments suggested by AuRE:
+
+| Suggestion | Response |
+|------------|----------|
+| "Parameter X at upper bound" | Widen that parameter's range in the model file |
+| "Consider adding interface roughness" | Add an `interface.range(...)` call on the layer |
+| "Residual fringes suggest unmodeled layer" | Add a layer to the model |
+| "High-Q residual structure" | Check `dQ` resolution and background |
 
 ## Complete Workflow Example
 
 ```bash
-# 1. Initial fit
+# 1. Generate a model from a description
+create-model "Cu/Ti bilayer on Si in deuterated THF" \
+             data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
+
+# 2. Fit
 run-fit 218281 cu_thf
 
-# 2. Check quality
-assess-result results/218281_cu_thf 218281 cu_thf
-# → reports/report_218281.md shows χ² = 6.2 (poor)
-
-# 3. Adjust model — widen material thickness range
-create-temporary-model cu_thf cu_thf_wide --adjust 'material thickness 10,300'
-
-# 4. Re-fit
-run-fit 218281 cu_thf_wide
-
-# 5. Re-assess
-assess-result results/218281_cu_thf_wide 218281 cu_thf_wide
-# → χ² = 1.8 (excellent)
-```
-
-## Generating Standalone Scripts
-
-To create a self-contained Python fit script (useful for debugging or running outside the framework):
-
-```bash
-create-model cu_thf REFL_218281_combined_data_auto.txt
-# → model_218281_cu_thf.py
+# 3. Assess (also runs aure evaluate)
+assess-result results/218281_cu_thf 218281 cu_thf \
+  --context "Cu/Ti bilayer on Si in deuterated THF"
+# → reports/report_218281.md with χ², plots, parameter table, LLM verdict
 ```
 
 ## Notes
 
-- All analysis results should be recorded in `docs/analysis_notes.md`
-- The fitting algorithm is Bumps DREAM (Differential Evolution Adaptive Metropolis)
-- MCMC samples provide parameter uncertainty estimates
-- SLD profile uncertainty bands represent 90% confidence intervals
+- All analysis results should be recorded in `docs/analysis_notes.md`.
+- The fitting algorithm is Bumps DREAM (Differential Evolution Adaptive Metropolis).
+- MCMC samples provide parameter uncertainty estimates.
+- SLD profile uncertainty bands represent 90% confidence intervals.
+- For end-to-end sample analysis with reduction-issue gating, use
+  **`analyze-sample`** (see the `pipeline` skill).

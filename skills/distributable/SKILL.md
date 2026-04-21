@@ -86,24 +86,29 @@ parameter table, and markdown report in `reports/`.
 | 3–5 | Acceptable | Consider adjusting model |
 | > 5 | Poor | Revise model |
 
-#### 3. `create-model` — Generate standalone fit script
+#### 3. `create-model` — Generate a refl1d model script
+
+Primary tool for building models. Accepts a plain-English sample
+description (shells out to `aure analyze -m 0`), a `ModelDefinition` JSON,
+or `--legacy` to wrap an existing `models/<name>.py`.
 
 ```bash
-create-model <MODEL_NAME> <DATA_FILE>
+# From a sample description
+create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
+
+# From a ModelDefinition JSON
+create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+
+# Legacy
+create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
 ```
 
 ### Model adjustment
 
-#### `create-temporary-model` — Adjust parameter ranges
-
-```bash
-create-temporary-model <BASE_MODEL> <NEW_MODEL> --adjust '<LAYER> <PARAM> <MIN>,<MAX>'
-```
-
-Example:
-```bash
-create-temporary-model cu_thf cu_thf_wide --adjust 'Cu thickness 300,1200'
-```
+To widen a parameter range or change a layer, edit `models/<name>.py`
+directly and re-run the fit. (The old `create-temporary-model` CLI has
+been removed.)
 
 ### Partial data
 
@@ -156,41 +161,68 @@ iceberg-packager <DATA_DIR> --output <OUTPUT_DIR>
 analyzer-batch <MANIFEST_FILE>
 ```
 
+### LLM health check
+
+#### `check-llm` — Verify the AuRE/LLM chain is ready
+
+```bash
+check-llm              # full check with a live test prompt
+check-llm --no-test    # static checks only
+check-llm --json       # machine-readable
+```
+
+Run at the start of a session. Exits non-zero when the `aure` CLI is
+missing, `aure.llm` is not importable, or the LLM endpoint is unreachable.
+
 ---
 
-## Standard Fitting Workflow
+## End-to-end Pipeline (recommended)
+
+For a single sample, `analyze-sample` drives everything — partial-overlap
+checks → reduction-issue gate → AuRE model creation → AuRE fit → AuRE
+evaluation — and writes a consolidated report:
+
+```bash
+analyze-sample sample_218281.md       # sample.md has YAML frontmatter + description
+analyze-sample 218281 --dry-run       # or just a set ID
+```
+
+If the reduction-issue gate trips, the pipeline emits
+`reports/sample_<id>/reduction_issues.md` and a pre-filled
+`reduction_batch.yaml` for the user to review and run with `analyzer-batch`.
+Reduction is **never** auto-executed.
+
+## Standard Fitting Workflow (manual)
 
 ```
+create-model <description|definition.json> --out models/<name>.py
+    │
+    ▼
 run-fit <SET_ID> <MODEL>
     │
     ▼
-assess-result results/<SET_ID>_<MODEL> <SET_ID> <MODEL>
-    │  → plots, parameter table, markdown report
+assess-result results/<SET_ID>_<MODEL> <SET_ID> <MODEL> --context "<description>"
+    │  → plots, parameter table, markdown report with AuRE evaluation
     ▼
-┌─ χ² acceptable? ─────────────────────┐
+┌─ acceptable? ─────────────────────────┐
 │  Yes → record in analysis notes       │
-│  No  → adjust model and re-fit:       │
-│        create-temporary-model + run-fit│
+│  No  → edit models/<name>.py, re-fit  │
 └───────────────────────────────────────┘
 ```
 
 ### Complete example
 
 ```bash
-# 1. Fit
+# 1. Generate a model
+create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
+
+# 2. Fit
 run-fit 218281 cu_thf
 
-# 2. Assess
-assess-result results/218281_cu_thf 218281 cu_thf
-# → reports/report_218281.md shows χ² = 6.2 (poor)
-
-# 3. Widen parameter range
-create-temporary-model cu_thf cu_thf_wide --adjust 'material thickness 10,300'
-
-# 4. Re-fit and re-assess
-run-fit 218281 cu_thf_wide
-assess-result results/218281_cu_thf_wide 218281 cu_thf_wide
-# → χ² = 1.8 (excellent)
+# 3. Assess (also runs aure evaluate)
+assess-result results/218281_cu_thf 218281 cu_thf \
+  --context "Cu/Ti bilayer on Si in deuterated THF"
 ```
 
 ---

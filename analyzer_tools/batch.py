@@ -42,13 +42,14 @@ TOOL_COMMANDS = {
     "run-fit":                "analyzer_tools.analysis.run_fit",
     "assess-partial":         "analyzer_tools.analysis.partial_data_assessor",
     "assess-result":          "analyzer_tools.analysis.result_assessor",
-    "create-model":           "analyzer_tools.analysis.create_model_script",
-    "create-temporary-model": "analyzer_tools.analysis.create_temporary_model",
+    "create-model":           "analyzer_tools.analysis.model_from_aure",
     "eis-intervals":          "analyzer_tools.reduction.event_filter",
     "iceberg-packager":       "analyzer_tools.utils.iceberg_packager",
     "theta-offset":           "analyzer_tools.analysis.theta_offset",
     "simple-reduction":       "analyzer_tools.reduction.reduction",
     "eis-reduce-events":      "analyzer_tools.reduction.eis_reduce_events",
+    "analyze-sample":         "analyzer_tools.pipeline",
+    "check-llm":              "analyzer_tools.analysis.check_llm",
 }
 
 

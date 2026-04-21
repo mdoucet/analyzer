@@ -14,20 +14,28 @@ for both GitHub Copilot and GEMINI. This project is still in the prototype phase
 ## Quick Start
 
 1. Install VS Code and enable GitHub Copilot
-2. Follow the [Installation](#installation) steps below
+2. Follow the [Installation](#installation) steps below (install [AuRE](https://github.com/neutrons-ai/aure) too if you want LLM features)
 3. Make sure your data is available locally
 4. Edit `config.ini` to point `combined_data_dir` and `partial_data_dir` at your data
-5. Start analyzing:
+5. Verify the LLM endpoint is reachable (optional but recommended):
+
+```bash
+check-llm
+```
+
+6. Start analyzing:
 
 ```bash
 # See all available tools
 analyzer-tools --list-tools
 
-# Assess partial data quality
-assess-partial 218281
+# End-to-end pipeline for one sample (recommended)
+analyze-sample sample_218281.md
 
-# Fit combined data
-run-fit 218281 cu_thf
+# Or run individual steps:
+assess-partial 218281                 # partial-data quality
+run-fit 218281 cu_thf                 # fit the combined data
+assess-result results/218281_cu_thf 218281 cu_thf    # evaluate (+ AuRE)
 
 # Show available data files
 analyzer-tools --show-data
@@ -35,13 +43,15 @@ analyzer-tools --show-data
 
 ## What This Package Does
 
+- **End-to-end Pipeline** — `analyze-sample` runs the full workflow for one sample with a reduction-issue gate
 - **Data Quality Assessment** — Check partial data consistency before combining
-- **Model Fitting** — Fit reflectivity data to theoretical models with uncertainty analysis
+- **Model Generation** — `create-model` turns a sample description into a refl1d script via [AuRE](https://github.com/neutrons-ai/aure)
+- **Model Fitting** — Wraps `aure analyze` to fit reflectivity data with uncertainty analysis
+- **LLM-powered Evaluation** — `assess-result` appends an AuRE-driven fit verdict to the report
 - **Automated Reporting** — Generate Markdown reports with plots
-- **Model Management** — Create and modify fitting models
-- **Experiment Planning** — Optimize experimental parameters using information theory
 - **Time-Resolved Reduction** — EIS interval extraction and Mantid event filtering (via Docker)
 - **Data Packaging** — Export time-resolved datasets to Parquet/Iceberg format
+- **LLM Health Check** — `check-llm` verifies the AuRE/LLM chain at the start of a session
 
 
 ## Installation
@@ -60,6 +70,21 @@ This gives you all analysis, fitting, and planning tools. The reduction
 commands (`simple-reduction`, `eis-reduce-events`) require Mantid and are
 skipped gracefully when it is not installed.
 
+### LLM features (optional)
+
+The model-creation, fit-evaluation, and commentary features delegate to
+[AuRE](https://github.com/neutrons-ai/aure). Install it in the same
+environment and configure an LLM endpoint:
+
+```bash
+pip install -e /path/to/aure
+export OPENAI_API_KEY=sk-...   # or configure aure_config.yaml
+check-llm                      # verify the chain
+```
+
+When AuRE or the LLM is unavailable, all LLM-based steps degrade gracefully
+(skipped with a warning); the rest of the pipeline continues to work.
+
 ### Docker (full stack, including Mantid)
 
 The Docker image uses [pixi](https://pixi.sh) to install Mantid and
@@ -77,42 +102,6 @@ Output files are available on your host via volume mounts (`data/`, `models/`,
 `reports/`, `results/`).
 
 
-## Project Structure
-
-```
-analyzer_tools/
-├── cli.py                  # Click CLI and entry point wrappers
-├── config_utils.py         # Centralized config.ini reader
-├── registry.py             # Tool catalog for CLI discovery
-├── analysis/               # Core analysis tools
-│   ├── partial_data_assessor.py
-│   ├── run_fit.py
-│   ├── result_assessor.py
-│   ├── create_model_script.py
-│   ├── create_temporary_model.py
-│   ├── eis_interval_extractor.py
-│   └── plot_time_series.py
-├── reduction/              # Mantid-based reduction (optional)
-│   ├── core.py             # Shared reduction engine
-│   ├── event_filter.py     # EIS event filtering
-│   ├── reduction.py        # Single-run reduction CLI
-│   └── eis_reduce_events.py# Time-resolved reduction CLI
-└── utils/
-    ├── iceberg_packager.py # Parquet/Iceberg export
-    ├── model_utils.py
-    └── summary_plots.py
-
-skills/                         # LLM skill definitions (SKILL.md)
-├── data-organization/          # Data layout and file conventions
-├── fitting/                    # Fitting workflow (run-fit, assess-result)
-├── partial-assessment/         # Partial data overlap checks
-├── time-resolved/              # EIS intervals and event reduction
-├── data-packaging/             # Iceberg/Parquet packaging
-├── models/                     # Model system documentation
-└── reflectometry-basics/       # Domain primer (NR concepts)
-```
-
-
 ## CLI Commands
 
 All commands are installed as entry points via `pip install -e .`:
@@ -120,12 +109,16 @@ All commands are installed as entry points via `pip install -e .`:
 | Command | Purpose |
 |---------|---------|
 | `analyzer-tools` | Main CLI — list tools, workflows, data, get help |
-| `run-fit` | Fit combined data to a model |
-| `assess-partial` | Assess partial data overlap quality |
-| `assess-result` | Evaluate fit quality and uncertainties |
-| `create-model` | Generate a fit script from a model |
+| `analyze-sample` | End-to-end pipeline for one sample (partial → gate → fit → evaluate) |
+| `check-llm` | Verify AuRE is installed and the LLM endpoint is reachable |
+| `run-fit` | Fit combined data (wraps `aure analyze`; `--legacy` for the old fitter) |
+| `assess-partial` | Assess partial-data overlap quality; `--llm-commentary` adds AuRE commentary |
+| `assess-result` | Evaluate fit quality + append an AuRE LLM verdict to the report |
+| `create-model` | Generate a refl1d script from a sample description or `ModelDefinition` JSON (via AuRE) |
+| `theta-offset` | Compute the theta offset for a Liquids Reflectometer run |
 | `eis-intervals` | Extract EIS timing intervals to JSON |
 | `iceberg-packager` | Package tNR data into Parquet files |
+| `analyzer-batch` | Dispatch multiple jobs from a YAML manifest |
 | `simple-reduction` | Mantid single-run reduction (Docker) |
 | `eis-reduce-events` | Mantid time-resolved reduction (Docker) |
 
@@ -175,15 +168,15 @@ assess-partial 218281
 
 ### 2. Standard Fitting
 ```bash
+create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
 run-fit 218281 cu_thf                     # fit the data
-assess-result 218281 cu_thf               # evaluate fit quality
+assess-result 218281 cu_thf               # evaluate fit quality (+ AuRE)
 ```
 
-### 3. Parameter Exploration
+### 3. End-to-end Pipeline
 ```bash
-create-temporary-model cu_thf cu_thf_wide --adjust 'Cu thickness 300,1000'
-run-fit 218281 cu_thf_wide
-assess-result 218281 cu_thf_wide
+analyze-sample sample_218281.md           # one command, full workflow
 ```
 
 ### 4. Time-Resolved Reduction (Docker)
@@ -199,19 +192,28 @@ docker compose run analyzer eis-reduce-events \
 
 ## Models
 
-Models are Python files in `models/` that define a `create_fit_experiment()` function
-returning a `refl1d.experiment.Experiment`.
+Models are Python files in `models/` that define a `create_fit_experiment(q, dq, data, errors)`
+function returning a `refl1d.experiment.Experiment`.
 
 Available models: `cu_thf`, `cu_thf_no_oxide`, `cu_thf_tiny`,
 `ionomer_sld_1`, `ionomer_sld_2`, `ionomer_sld_3`.
 
 ```bash
-# Create a refl1d-compatible fit script
-create-model cu_thf data.txt
+# Generate a model from a plain-English description (via AuRE)
+create-model "Cu/Ti on Si in dTHF" \
+             data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
 
-# Copy an existing model as a starting point
+# Or from an existing AuRE ModelDefinition JSON
+create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+
+# Copy an existing model as a starting point and edit bounds manually
 cp models/cu_thf.py models/my_model.py
 ```
+
+To widen or tighten a parameter range, edit the model file's
+`.range(min, max)` calls directly and re-fit. (The old
+`create-temporary-model` CLI was retired in v0.2.0.)
 
 
 ## Getting Help

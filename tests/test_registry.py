@@ -112,7 +112,6 @@ class TestToolRegistryContent:
             "run_fit", 
             "result_assessor",
             "create_model_script",
-            "create_temporary_model"
         ]
         
         for tool_name in expected_tools:
@@ -128,8 +127,8 @@ class TestToolRegistryContent:
         """Test that WORKFLOWS contains expected analysis workflows."""
         expected_workflows = [
             "partial_data_quality",
-            "standard_fitting", 
-            "parameter_exploration"
+            "standard_fitting",
+            "full_pipeline",
         ]
         
         for workflow_name in expected_workflows:

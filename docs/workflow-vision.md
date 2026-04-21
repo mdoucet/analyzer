@@ -20,23 +20,43 @@
 - We then use AuRE to assess the results and produce a final human-readable output, and a markdown file with fit parameters and plots.
 
 ## Analyzer Package Upgrade Project
-The original alzyer package dates from last summer, when the coding agents were not as good and agent skills didn't exist. 
-We would like to upgrade this package to use a modern approach for Spring 2026. We already started this process, but a lot remains.
-Here is a list of updates:
 
-1- **Model creation**: the create_model_script.py and create_temporary_model.py should be 
-replaced by a call to AuRE. AuRE is able to generate a refl1d model from a user description of 
-the measurement. We should leverage that instead of using heuristics. AuRE will produce a 
-refl1d json problem. We will need to add functionality to read this json file and produce a script. Note: AuRE doesn't currently have a CLI for model generation. It's on their TOD list.
+The original analyzer package dates from last summer, when the coding agents
+were not as good and agent skills didn't exist. We upgraded this package in
+Spring 2026 to use a modern approach. Status of the planned updates:
 
-2- **Data assessor**: the partial_data_assessor.py needs a refresh. We may want to use LLM calls here too. Read all the skills available to suggest improvements.
+1- **Model creation** ✅ *(Spring 2026)* — `create_model_script.py` and
+`create_temporary_model.py` have been removed and replaced by
+`analyzer_tools/analysis/model_from_aure.py`. The `create-model` CLI accepts
+either a plain-English sample description (shells out to `aure analyze -m 0`)
+or an existing `ModelDefinition` JSON, and converts it to an
+analyzer-convention refl1d script.
 
-3- **Executing fits**: run_fit.py should leverage AuRE. It should perhaps even just return the on-liner to use with AuRE rather than being an interface to it.
+2- **Data assessor** ✅ *(Spring 2026)* — `partial_data_assessor.py` now emits
+structured metrics (`compute_metrics`, `write_metrics_json`), classifies each
+overlap against a configurable χ² threshold, and optionally augments the
+report with LLM commentary via `aure.llm` (`--llm-commentary`).
 
-4- **Assessing fits**: result_assessor.py should leverage the AuRE CLI for that purpose and augment it's results.
+3- **Executing fits** ✅ *(Spring 2026)* — `run_fit.py` defaults to an AuRE
+wrapper (`aure analyze` with a sample description). The legacy in-process
+fitter is still available behind `--legacy` with a deprecation warning.
 
-5- **Overall workflow**: We need to define an overall data pipeline/workflow. Although all these steps can be done individually, we really want an orchestrating process to help the user along.
-This doesn't have to be a full agentic workflow for now. I don't think we want to use langchain, for instance, in this version. Perhaps in the future.
+4- **Assessing fits** ✅ *(Spring 2026)* — `result_assessor.py` invokes
+`aure evaluate --json` after the existing plotting/reporting and appends an
+`## LLM Evaluation (AuRE)` section to the markdown report. `--skip-aure-eval`
+disables it.
 
-6- **Agent skills refactor**: We need to assess the agent skills and see if the older ones are covered by the recently created ones. Some of them had specific use-cases in mind, and we may want to consilidate some and split others to address specific concerns.
+5- **Overall workflow** ✅ *(Spring 2026)* — `analyzer_tools/pipeline.py`
+provides an `analyze-sample` CLI that drives the full workflow for one
+sample: partial assessment → reduction-issue gate → AuRE model creation →
+AuRE fit → AuRE evaluation. A `.pipeline_state.json` cache enables resume,
+and a reduction-issue gate emits `reduction_issues.md` plus a pre-filled
+`reduction_batch.yaml` manifest (analyzer-batch format) for user review —
+reduction is never executed automatically. No LangChain.
+
+6- **Agent skills refactor** ✅ *(Spring 2026)* — The `fit-evaluation` skill
+was merged into `fitting`. The new `pipeline` skill documents
+`analyze-sample`. The `models` and `distributable` skills were updated to
+describe the AuRE-backed `create-model` workflow and removed all references
+to the retired `create-temporary-model` tool.
 

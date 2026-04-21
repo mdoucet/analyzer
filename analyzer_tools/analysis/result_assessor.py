@@ -6,8 +6,11 @@ import matplotlib.pyplot as plt
 import glob
 import re
 import json
+import shutil
+import subprocess
 from datetime import datetime
 import configparser
+from typing import Any, Dict, List, Optional
 
 import click
 from refl1d.names import FitProblem
@@ -404,6 +407,131 @@ def _get_config():
     return config
 
 
+# ---------------------------------------------------------------------------
+# AuRE evaluate augmentation
+# ---------------------------------------------------------------------------
+
+
+def _read_context(context: Optional[str], context_file: Optional[str]) -> Optional[str]:
+    """Resolve sample description from inline text or a markdown file."""
+    if context_file:
+        with open(context_file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return context
+
+
+def run_aure_evaluate(
+    results_dir: str,
+    *,
+    context: Optional[str] = None,
+    hypothesis: Optional[str] = None,
+    aure_executable: str = "aure",
+    timeout: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Run ``aure evaluate <results_dir> --json`` and return parsed output.
+
+    Returns ``None`` silently when AuRE is not installed or the call fails;
+    the caller can inspect the return value and decide whether to skip the
+    LLM section.  Errors from AuRE are captured in the returned dict under
+    ``error`` when execution happens but fails parsing.
+    """
+    if shutil.which(aure_executable) is None:
+        return None
+    cmd = [aure_executable, "evaluate", str(results_dir), "--json"]
+    if context:
+        cmd.extend(["-c", context])
+    if hypothesis:
+        cmd.extend(["-h", hypothesis])
+    try:
+        completed = subprocess.run(
+            cmd, check=False, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.SubprocessError as exc:
+        return {"error": f"subprocess failure: {exc}"}
+    if completed.returncode != 0:
+        return {
+            "error": f"aure evaluate exited with code {completed.returncode}",
+            "stderr": completed.stderr.strip(),
+        }
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {"error": "non-JSON output from aure evaluate", "stdout": completed.stdout.strip()}
+
+
+def _render_aure_section(evaluation: Dict[str, Any]) -> str:
+    """Render an AuRE evaluation dict as a markdown section."""
+    lines: List[str] = ["## LLM Evaluation (AuRE)", ""]
+    if evaluation.get("error"):
+        lines.append(f"> AuRE evaluate did not run successfully: `{evaluation['error']}`")
+        if evaluation.get("stderr"):
+            lines.append("")
+            lines.append("```")
+            lines.append(evaluation["stderr"])
+            lines.append("```")
+        return "\n".join(lines) + "\n"
+
+    verdict = evaluation.get("verdict") or evaluation.get("quality") or evaluation.get("status")
+    if verdict:
+        lines.append(f"**Verdict**: {verdict}")
+    if "chi2" in evaluation:
+        lines.append(f"**χ²**: {evaluation['chi2']}")
+
+    issues = evaluation.get("issues") or []
+    if issues:
+        lines.append("")
+        lines.append("### Issues")
+        for item in issues:
+            lines.append(f"- {item}")
+
+    suggestions = evaluation.get("suggestions") or []
+    if suggestions:
+        lines.append("")
+        lines.append("### Suggestions")
+        for item in suggestions:
+            lines.append(f"- {item}")
+
+    plausibility = evaluation.get("physical_plausibility") or evaluation.get("plausibility")
+    if plausibility:
+        lines.append("")
+        lines.append("### Physical Plausibility")
+        if isinstance(plausibility, dict):
+            for k, v in plausibility.items():
+                lines.append(f"- **{k}**: {v}")
+        else:
+            lines.append(str(plausibility))
+
+    summary = evaluation.get("summary") or evaluation.get("narrative")
+    if summary:
+        lines.append("")
+        lines.append("### Narrative")
+        lines.append(str(summary))
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def append_aure_section_to_report(report_path: str, evaluation: Dict[str, Any]) -> None:
+    """Append or replace an AuRE Evaluation section in *report_path*."""
+    section = _render_aure_section(evaluation)
+    header = "## LLM Evaluation (AuRE)"
+    if os.path.exists(report_path):
+        with open(report_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        pattern = re.compile(
+            rf"({re.escape(header)}.*?)(?=\n## |\Z)", re.DOTALL
+        )
+        if pattern.search(content):
+            content = pattern.sub(section.rstrip() + "\n", content)
+        else:
+            content = content.rstrip() + "\n\n" + section
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    else:
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(section)
+
+
 @click.command()
 @click.argument("directory", type=click.Path(exists=True, file_okay=False))
 @click.argument("set_id", type=str)
@@ -414,7 +542,49 @@ def _get_config():
     default=None,
     help="Directory to save reports. Defaults to config.ini reports_dir.",
 )
-def main(directory: str, set_id: str, model_name: str, output_dir: str):
+@click.option(
+    "--skip-aure-eval",
+    is_flag=True,
+    default=False,
+    help="Skip the AuRE `evaluate` augmentation step.",
+)
+@click.option(
+    "--context",
+    type=str,
+    default=None,
+    help="Sample description passed to `aure evaluate -c`.",
+)
+@click.option(
+    "--sample-description",
+    "context_file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Markdown file whose contents are used as the AuRE context.",
+)
+@click.option(
+    "--hypothesis",
+    type=str,
+    default=None,
+    help="Optional hypothesis passed to `aure evaluate -h`.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Print a machine-readable summary (analyzer + AuRE) to stdout.",
+)
+def main(
+    directory: str,
+    set_id: str,
+    model_name: str,
+    output_dir: Optional[str],
+    skip_aure_eval: bool,
+    context: Optional[str],
+    context_file: Optional[str],
+    hypothesis: Optional[str],
+    as_json: bool,
+):
     """
     Assess the result of a reflectivity fit.
     
@@ -433,6 +603,32 @@ def main(directory: str, set_id: str, model_name: str, output_dir: str):
         os.makedirs(output_dir)
 
     assess_result(directory, set_id, model_name, output_dir)
+
+    evaluation: Optional[Dict[str, Any]] = None
+    if not skip_aure_eval:
+        ctx = _read_context(context, context_file)
+        evaluation = run_aure_evaluate(
+            directory,
+            context=ctx,
+            hypothesis=hypothesis,
+        )
+        if evaluation is not None:
+            report_path = os.path.join(output_dir, f"report_{set_id}.md")
+            append_aure_section_to_report(report_path, evaluation)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "set_id": set_id,
+                    "model_name": model_name,
+                    "results_dir": os.path.abspath(directory),
+                    "report": os.path.join(output_dir, f"report_{set_id}.md"),
+                    "aure_evaluation": evaluation,
+                },
+                indent=2,
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -155,8 +155,8 @@ def assess_partial_cli():
 
 
 def create_model_cli():
-    """Command-line interface for create_model_script."""
-    from .analysis.create_model_script import main
+    """Command-line interface for create-model (AuRE ModelDefinition bridge)."""
+    from .analysis.model_from_aure import main
     main()
 
 
@@ -199,6 +199,18 @@ def eis_reduce_events_cli():
 def simple_reduction_cli():
     """Command-line interface for Mantid simple reduction."""
     from .reduction.reduction import main
+    main()
+
+
+def analyze_sample_cli():
+    """Command-line interface for the sample pipeline orchestrator."""
+    from .pipeline import main
+    main()
+
+
+def check_llm_cli():
+    """Command-line interface for the LLM health check."""
+    from .analysis.check_llm import main
     main()
 
 

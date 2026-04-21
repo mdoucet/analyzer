@@ -76,35 +76,40 @@ sample["material"].interface.range(1.0, 33.0)
 2. Edit the layer structure and parameter ranges
 3. The model is immediately available by name (`my_model`) in all tools
 
-## Generating Standalone Fit Scripts
+## Generating Models
 
-The `create-model` command combines a model with a data file into a self-contained Python script:
+The `create-model` command is the primary way to produce analyzer-convention
+model scripts. It accepts either:
+
+- A plain-English **sample description** (shells out to `aure analyze -m 0`
+  to build a `ModelDefinition`), or
+- An existing **ModelDefinition JSON** file, or
+- With `--legacy`, an existing `models/<name>.py` plus a data file (produces
+  a standalone fit script).
 
 ```bash
-create-model cu_thf REFL_218281_combined_data_auto.txt
-# → creates model_218281_cu_thf.py
-```
+# From a sample description
+create-model "Cu/Ti on Si in dTHF" \
+             data/combined/REFL_218281_combined_data_auto.txt \
+             --out models/cu_thf.py
 
-This is useful for running fits outside the analyzer framework or for debugging.
+# From a ModelDefinition JSON
+create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+
+# Legacy: wrap an existing models/cu_thf.py with a data file
+create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
+```
 
 ## Adjusting Parameter Ranges
 
-The `create-temporary-model` command creates a modified copy of a model with different parameter ranges:
+To widen or tighten a parameter range, **edit the model file directly**:
 
-```bash
-create-temporary-model cu_thf cu_thf_wide --adjust 'Cu thickness 300,1000'
+```python
+# models/cu_thf.py
+Cu = SLD(name="Cu", rho=6.4)(thickness=Cu_thickness, interface=4.6)
+Cu_thickness.range(300, 1000)   # edit these bounds
 ```
 
-This creates `models/cu_thf_wide.py` with the Cu thickness range changed to [300, 1000]. The `--adjust` flag format is:
-
-```
---adjust 'LAYER_NAME PARAMETER MIN,MAX'
-```
-
-Multiple adjustments can be specified:
-
-```bash
-create-temporary-model cu_thf cu_thf_custom \
-  --adjust 'Cu thickness 300,1000' \
-  --adjust 'material rho 2,8'
-```
+Then re-run `run-fit` and `assess-result`. The previous
+`create-temporary-model` CLI has been removed — editing is clearer and keeps
+a single source of truth per model.

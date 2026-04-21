@@ -35,8 +35,8 @@ class TestPartialDataAssessor:
 
         assert "## Partial Data Assessment" in report_content
         assert "### Overlap Metrics (Chi-squared)" in report_content
-        assert "Overlap 1" in report_content
-        assert "Overlap 2" in report_content
+        assert "Parts 1↔2" in report_content
+        assert "Parts 2↔3" in report_content
         
         # Check that the plot was created
         mock_savefig.assert_called_once()

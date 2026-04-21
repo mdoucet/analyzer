@@ -39,12 +39,12 @@ Consult these when you need to understand how to use a tool, what inputs/outputs
 - `skills/data-organization/` — Data layout, file naming, column formats
 - `skills/models/` — Model files, available models, creating/adjusting models
 - `skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
-- `skills/fitting/` — run-fit → assess-result → adjust model workflow
+- `skills/fitting/` — create-model → run-fit → assess-result (+ AuRE evaluation) workflow
 - `skills/partial-assessment/` — Partial data overlap quality checks
 - `skills/theta-offset/` — Theta offset calculation, single and batch mode
 - `skills/time-resolved/` — EIS interval extraction and neutron event reduction
 - `skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
-- `skills/fit-evaluation/` — LLM-powered fit assessment via AuRE
+- `skills/pipeline/` — End-to-end sample pipeline (`analyze-sample`) with reduction-issue gate
 - `skills/distributable/` — Single-file summary skill for external users
 
 ### Using skills in another repo
