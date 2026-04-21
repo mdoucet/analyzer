@@ -1,6 +1,6 @@
 import os
 import sys
-import importlib
+import importlib.util
 from analyzer_tools.config_utils import get_config
 import shlex
 import shutil
@@ -13,12 +13,6 @@ from refl1d.names import *
 from bumps.fitters import fit
 
 
-# Add project root to path to allow importing from 'models'
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-
 def execute_fit(model_name, data_file, output_dir):
     """
     This script executes a fit using a predefined model and data.
@@ -26,24 +20,37 @@ def execute_fit(model_name, data_file, output_dir):
     Parameters
     ----------
     model_name : str
-        The name of the model module in the 'models' directory (e.g., 'cu_thf').
+        The name of the model module (e.g., 'cu_thf'). The file
+        ``<ANALYZER_MODELS_DIR>/<model_name>.py`` must define
+        ``create_fit_experiment(q, dq, data, errors)``.
     data_file : str
         Path to the data file.
     output_dir : str
         The directory where fit results will be saved.
     """
-    try:
-        model_module = importlib.import_module(f"models.{model_name}")
-        create_fit_experiment = model_module.create_fit_experiment
-    except ImportError as e:
+    models_dir = get_config().get_models_dir()
+    model_path = os.path.join(models_dir, f"{model_name}.py")
+    if not os.path.isfile(model_path):
         print(
-            f"Error: Could not import model '{model_name}' from 'models' directory: {e}"
+            f"Error: Model file '{model_path}' not found "
+            f"(ANALYZER_MODELS_DIR='{models_dir}')."
         )
         return
+    try:
+        spec = importlib.util.spec_from_file_location(f"_analyzer_model_{model_name}", model_path)
+        if spec is None or spec.loader is None:
+            print(f"Error: Could not load model spec from '{model_path}'.")
+            return
+        model_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(model_module)
+        create_fit_experiment = model_module.create_fit_experiment
     except AttributeError:
         print(
-            f"Error: 'create_fit_experiment' function not found in '{model_name}' module."
+            f"Error: 'create_fit_experiment' function not found in '{model_path}'."
         )
+        return
+    except Exception as e:
+        print(f"Error: Could not import model '{model_name}' from '{model_path}': {e}")
         return
 
     if not os.path.exists(data_file):

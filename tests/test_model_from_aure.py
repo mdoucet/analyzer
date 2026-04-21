@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import json
 import os
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -154,34 +153,6 @@ def test_cli_from_json(tmp_path: Path, cu_thf_definition: dict) -> None:
     assert result.exit_code == 0, result.output
     assert out_path.exists()
     assert "create_fit_experiment" in out_path.read_text()
-
-
-def test_cli_legacy_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    models_dir = tmp_path / "models"
-    models_dir.mkdir()
-    (models_dir / "dummy.py").write_text(
-        textwrap.dedent(
-            """
-            from refl1d.names import *
-
-            def create_fit_experiment(q, dq, data, errors):
-                probe = QProbe(q, dq, R=data, dR=errors)
-                Si = SLD("Si", rho=2.07)
-                sample = Si(0, 3) | Si
-                return Experiment(probe=probe, sample=sample)
-            """
-        ).strip()
-    )
-    data_file = tmp_path / "REFL_999_combined_data_auto.txt"
-    data_file.write_text("# header\n0.01 0.1 0.01 0.001\n")
-
-    monkeypatch.chdir(tmp_path)
-    runner = CliRunner()
-    result = runner.invoke(
-        mfa.main, ["dummy", str(data_file), "--legacy"]
-    )
-    assert result.exit_code == 0, result.output
-    assert os.path.exists("model_999_dummy.py")
 
 
 def test_cli_description_mode_calls_aure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cu_thf_definition: dict) -> None:

@@ -60,12 +60,11 @@ TOOLS = {
     "create_model_script": ToolInfo(
         name="Model Script Creator (AuRE)",
         module="analyzer_tools.analysis.model_from_aure",
-        description="Generate an analyzer-convention refl1d model script from an AuRE ModelDefinition JSON (preferred) or a plain-English sample description (calls `aure analyze -m 0`). A legacy mode wraps an existing models/<name>.py into a fit script.",
-        usage="create-model <definition.json|sample_description> [DATA_FILE] [--out models/<name>.py] [--legacy]",
+        description="Generate an analyzer-convention refl1d model script from an AuRE ModelDefinition JSON (preferred) or a plain-English sample description (calls `aure analyze -m 0`).",
+        usage="create-model <definition.json|sample_description> [DATA_FILE] [--out models/<name>.py]",
         examples=[
             "create-model path/to/model_initial.json --out models/cu_thf.py",
             "create-model 'Cu/Ti on Si in dTHF' data/combined/REFL_218281_combined_data_auto.txt --out models/cu_thf.py",
-            "create-model cu_thf data.txt --legacy"
         ],
         data_type="combined"
     ),

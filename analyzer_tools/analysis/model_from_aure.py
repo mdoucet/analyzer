@@ -276,48 +276,6 @@ def invoke_aure_modeling(
 
 
 # ---------------------------------------------------------------------------
-# Legacy helper: wrap an existing model.py + data file into a fit script
-# ---------------------------------------------------------------------------
-
-
-def create_fit_script(model_name: str, data_file: str, *, models_dir: str = "models") -> str:
-    """Legacy wrapper: combine ``models/<model_name>.py`` with a tiny runner.
-
-    This mirrors the original ``create_model_script.create_fit_script`` but is
-    kept here so the new CLI can expose it as a deprecated subcommand.
-    Returns the path of the generated script.
-    """
-    import re
-    import sys
-
-    model_path = os.path.join(models_dir, f"{model_name}.py")
-    try:
-        with open(model_path, "r", encoding="utf-8") as f:
-            model_content = f.read()
-    except FileNotFoundError:
-        print(f"Error: Model file '{model_path}' not found.", file=sys.stderr)
-        sys.exit(1)
-
-    match = re.search(r"REFL_(\d+)_", os.path.basename(data_file))
-    if not match:
-        print(f"Error: Could not extract set_id from data file name: {data_file}", file=sys.stderr)
-        sys.exit(1)
-    set_id = match.group(1)
-
-    script_name = f"model_{set_id}_{model_name}.py"
-    fit_commands = (
-        f'\n_refl = np.loadtxt("{data_file}").T\n'
-        f"experiment = create_fit_experiment(_refl[0], _refl[3], _refl[1], _refl[2])\n"
-        f"problem = FitProblem(experiment)\n"
-    )
-    with open(script_name, "w", encoding="utf-8") as f:
-        f.write("import numpy as np\n\n")
-        f.write(model_content)
-        f.write(fit_commands)
-    return script_name
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -349,12 +307,6 @@ def create_fit_script(model_name: str, data_file: str, *, models_dir: str = "mod
     default=None,
     help="Working directory for AuRE (defaults to a temp dir when using --from-description).",
 )
-@click.option(
-    "--legacy",
-    is_flag=True,
-    default=False,
-    help="Legacy mode: wrap an existing models/<SOURCE>.py + DATA_FILE into a fit script.",
-)
 def main(
     source: str,
     data_file: Optional[str],
@@ -362,11 +314,10 @@ def main(
     from_json: Optional[bool],
     model_name: Optional[str],
     aure_output: Optional[str],
-    legacy: bool,
 ) -> None:
     """Generate a refl1d model script.
 
-    Three modes:
+    Two modes:
 
     \b
     1. From an AuRE ModelDefinition JSON file:
@@ -374,22 +325,7 @@ def main(
     2. From a sample description (calls ``aure analyze -m 0``):
          create-model "Cu/Ti on Si in dTHF" data/combined/REFL_123_combined_data_auto.txt \\
              --out models/cu_thf.py
-    3. Legacy: wrap existing models/<name>.py + data file into a fit script
-       (deprecated; use AuRE-generated models going forward):
-         create-model cu_thf data/combined/REFL_123_combined_data_auto.txt --legacy
     """
-    # Legacy path: wrap models/<name>.py with the original helper.
-    if legacy:
-        if not data_file:
-            raise click.BadParameter("DATA_FILE is required in --legacy mode")
-        click.echo(
-            "Warning: --legacy mode is deprecated. Use AuRE-generated ModelDefinition JSON instead.",
-            err=True,
-        )
-        path = create_fit_script(source, data_file)
-        click.echo(f"Successfully created fit script: {path}")
-        return
-
     # Auto-detect input mode
     if from_json is None:
         from_json = os.path.isfile(source) and source.lower().endswith(".json")
@@ -413,7 +349,9 @@ def main(
         )
 
     if out is None:
-        out = os.path.join("models", f"{default_name}.py")
+        from analyzer_tools.config_utils import get_config
+        models_dir = get_config().get_models_dir()
+        out = os.path.join(models_dir, f"{default_name}.py")
 
     path = write_model_script(definition, out, model_name=default_name)
     click.echo(f"Wrote analyzer model script: {path}")

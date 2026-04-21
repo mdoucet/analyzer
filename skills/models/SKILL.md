@@ -83,9 +83,7 @@ model scripts. It accepts either:
 
 - A plain-English **sample description** (shells out to `aure analyze -m 0`
   to build a `ModelDefinition`), or
-- An existing **ModelDefinition JSON** file, or
-- With `--legacy`, an existing `models/<name>.py` plus a data file (produces
-  a standalone fit script).
+- An existing **ModelDefinition JSON** file.
 
 ```bash
 # From a sample description
@@ -95,9 +93,6 @@ create-model "Cu/Ti on Si in dTHF" \
 
 # From a ModelDefinition JSON
 create-model path/to/NNN_model_initial.json --out models/cu_thf.py
-
-# Legacy: wrap an existing models/cu_thf.py with a data file
-create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
 ```
 
 ## Adjusting Parameter Ranges

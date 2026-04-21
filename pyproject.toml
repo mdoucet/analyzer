@@ -27,7 +27,8 @@ classifiers = [
 dependencies = [
     "numpy",
     "matplotlib",
-    "refl1d==1.0.0b0",
+    "refl1d>1.0.0",
+    "aure[all] @ git+https://github.com/neutrons-ai/aure.git@main",
     "bumps",
     "pydantic",
     "tqdm",

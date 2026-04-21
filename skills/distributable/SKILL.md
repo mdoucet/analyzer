@@ -89,8 +89,7 @@ parameter table, and markdown report in `reports/`.
 #### 3. `create-model` — Generate a refl1d model script
 
 Primary tool for building models. Accepts a plain-English sample
-description (shells out to `aure analyze -m 0`), a `ModelDefinition` JSON,
-or `--legacy` to wrap an existing `models/<name>.py`.
+description (shells out to `aure analyze -m 0`) or a `ModelDefinition` JSON.
 
 ```bash
 # From a sample description
@@ -99,9 +98,6 @@ create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.
 
 # From a ModelDefinition JSON
 create-model path/to/NNN_model_initial.json --out models/cu_thf.py
-
-# Legacy
-create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
 ```
 
 ### Model adjustment

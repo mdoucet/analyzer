@@ -26,12 +26,14 @@ Example::
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import click
+from dotenv import dotenv_values
 
 
 def check_aure_cli() -> Tuple[bool, str]:
@@ -67,6 +69,10 @@ def run_aure_check_llm(
     if not test_connection:
         cmd.append("--no-test")
 
+    # Merge .env values into the subprocess environment so that aure picks up
+    # LLM_BASE_URL, LLM_MODEL, etc. even when they are not exported in the shell.
+    env = {**os.environ, **dotenv_values(".env")}
+
     try:
         completed = subprocess.run(
             cmd,
@@ -74,6 +80,7 @@ def run_aure_check_llm(
             text=True,
             timeout=timeout,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return False, {"error": f"aure check-llm timed out after {timeout}s"}

@@ -45,12 +45,6 @@ it to an analyzer-convention script with
 create-model path/to/NNN_model_initial.json --out models/cu_thf.py
 ```
 
-### Legacy mode (wrap an existing `models/<name>.py`)
-
-```bash
-create-model cu_thf REFL_218281_combined_data_auto.txt --legacy
-```
-
 ## Step 2: Run a Fit
 
 ```bash
