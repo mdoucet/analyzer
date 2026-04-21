@@ -36,9 +36,6 @@ analyze-sample sample_218281.md
 assess-partial 218281                 # partial-data quality
 run-fit 218281 cu_thf                 # fit the combined data
 assess-result results/218281_cu_thf 218281 cu_thf    # evaluate (+ AuRE)
-
-# Show available data files
-analyzer-tools --show-data
 ```
 
 ## What This Package Does
@@ -108,7 +105,7 @@ All commands are installed as entry points via `pip install -e .`:
 
 | Command | Purpose |
 |---------|---------|
-| `analyzer-tools` | Main CLI — list tools, workflows, data, get help |
+| `analyzer-tools` | Main CLI — list tools and get help |
 | `analyze-sample` | End-to-end pipeline for one sample (partial → gate → fit → evaluate) |
 | `check-llm` | Verify AuRE is installed and the LLM endpoint is reachable |
 | `run-fit` | Fit combined data (wraps `aure analyze`; `--legacy` for the old fitter) |
@@ -126,8 +123,6 @@ All commands are installed as entry points via `pip install -e .`:
 # Discovery
 analyzer-tools --list-tools        # all tools with descriptions
 analyzer-tools --help-tool partial # detailed help for a tool
-analyzer-tools --workflows         # analysis workflow guides
-analyzer-tools --show-data         # available data files
 ```
 
 
@@ -221,8 +216,6 @@ To widen or tighten a parameter range, edit the model file's
 ```bash
 analyzer-tools --list-tools            # all tools
 analyzer-tools --help-tool <name>      # detailed help for one tool
-analyzer-tools --workflows             # step-by-step workflow guides
-analyzer-tools --show-data             # available data files
 ```
 
 See [docs/developer_notes.md](docs/developer_notes.md) for development guidelines.

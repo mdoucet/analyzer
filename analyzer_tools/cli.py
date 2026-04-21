@@ -5,7 +5,6 @@ Command-line interfaces for analyzer tools.
 
 import sys
 import os
-import glob
 
 import click
 
@@ -86,55 +85,6 @@ def print_tool_overview():
     print("   3. For result assessment: assess-result 218281 cu_thf")
 
     print("\n" + "=" * 70)
-
-
-def _show_available_data():
-    """Show what data is available for analysis."""
-    from .config_utils import get_config
-
-    config = get_config()
-
-    print("\U0001f4ca AVAILABLE DATA:")
-    print("=" * 50)
-
-    # Combined data
-    combined_dir = config.get_combined_data_dir()
-    if os.path.exists(combined_dir):
-        combined_files = glob.glob(os.path.join(combined_dir, "*.txt"))
-        print(f"\n\U0001f4c8 Combined Data ({len(combined_files)} datasets):")
-        print(f"   Location: {combined_dir}/")
-        print(f"   Template: {config.get_combined_data_template()}")
-        for f in sorted(combined_files)[:5]:
-            print(f"   {os.path.basename(f)}")
-        if len(combined_files) > 5:
-            print(f"   ... and {len(combined_files) - 5} more")
-    else:
-        print(f"\n\U0001f4c8 Combined Data: Directory not found ({combined_dir})")
-
-    # Partial data
-    partial_dir = config.get_partial_data_dir()
-    if os.path.exists(partial_dir):
-        partial_files = glob.glob(os.path.join(partial_dir, "*_partial.txt"))
-        set_ids: set[str] = set()
-        for f in partial_files:
-            parts = os.path.basename(f).split("_")
-            if len(parts) >= 2:
-                set_ids.add(parts[1])
-        print(
-            f"\n\U0001f4ca Partial Data ({len(set_ids)} data sets"
-            f" with {len(partial_files)} parts):"
-        )
-        print(f"   Location: {partial_dir}/")
-        if set_ids:
-            print("   Available set IDs:")
-            for sid in sorted(set_ids)[:10]:
-                print(f"     {sid}")
-            if len(set_ids) > 10:
-                print(f"     ... and {len(set_ids) - 10} more")
-    else:
-        print(f"\n\U0001f4ca Partial Data: Directory not found ({partial_dir})")
-
-    print("\n" + "=" * 50)
 
 
 # ============================================================================
@@ -224,45 +174,16 @@ def check_llm_cli():
               help='List all available analysis tools')
 @click.option('--help-tool', 'help_tool', type=str, metavar='TOOL',
               help='Get detailed help for a specific tool')
-@click.option('--workflows', is_flag=True,
-              help='Show available analysis workflows')
-@click.option('--show-data', 'show_data', is_flag=True,
-              help='Show available data files')
-def main(list_tools: bool, help_tool: str, workflows: bool, show_data: bool):
+def main(list_tools: bool, help_tool: str):
     """Neutron Reflectometry Data Analysis Tools.
 
     \b
     Examples:
       analyzer-tools --list-tools              # Show all available tools
       analyzer-tools --help-tool partial       # Get help for partial data assessor
-      analyzer-tools --workflows               # Show analysis workflows
-      analyzer-tools --show-data               # Show available data files
     """
     if list_tools:
         print_tool_overview()
-        return
-
-    if show_data:
-        _show_available_data()
-        return
-
-    if workflows:
-        try:
-            from .registry import get_workflows
-        except ImportError:
-            from analyzer_tools.registry import get_workflows
-
-        workflow_dict = get_workflows()
-        print("\n\U0001f504 ANALYSIS WORKFLOWS:")
-        print("=" * 50)
-        for name, workflow in workflow_dict.items():
-            print(f"\n\U0001f4cb {workflow['name']}")
-            print(f"   {workflow['description']}")
-            print("   Steps:")
-            for step in workflow['steps']:
-                print(f"     {step}")
-            print(f"   Tools: {', '.join(workflow['tools'])}")
-        print("\n" + "=" * 50)
         return
 
     if help_tool:
