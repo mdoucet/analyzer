@@ -27,19 +27,32 @@ fit → evaluate), use **`analyze-sample`** instead. See the `pipeline` skill.
 
 ## Step 1: Create a Model
 
-### From a sample description (preferred)
+`create-model` has two modes. Pick one depending on your input.
+
+### Mode B — from a description + data files (most common)
 
 ```bash
-create-model "Cu/Ti bilayer on Si in deuterated THF. Expected 50 Å Cu on 20 Å CuOx." \
-             data/combined/REFL_218281_combined_data_auto.txt \
-             --out models/cu_thf.py
+# Case 1 — one combined file (QProbe)
+create-model --describe "50 nm Cu / 3 nm Ti on Si in D2O" \
+             --data data/combined/REFL_226642_combined_data_auto.txt \
+             --out models/cu_d2o.py
+
+# Case 3 — co-refine two combined files with shared structural parameters
+create-model --describe "2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O" \
+             --data data/combined/REFL_226642_combined_data_auto.txt \
+             --data data/combined/REFL_226652_combined_data_auto.txt \
+             --out models/Cu-D2O-corefine.py
+
+# Any mode — read options from a YAML/JSON config
+create-model --config model-creation.yaml
 ```
 
-Shells out to `aure analyze -m 0` to produce a `ModelDefinition` and converts
-it to an analyzer-convention script with
-`create_fit_experiment(q, dq, data, errors)`.
+The case (1, 2, or 3) is auto-detected from the data file names. Case 2 is
+the multi-segment fit (`REFL_{set}_{part}_{run}_partial.txt` files sharing
+one `set_id`). See the [create-model skill](../create-model/SKILL.md) for
+the full reference and the case-3 `shared_parameters` rules.
 
-### From an existing `ModelDefinition` JSON
+### Mode A — from an AuRE problem JSON
 
 ```bash
 create-model path/to/NNN_model_initial.json --out models/cu_thf.py
@@ -169,8 +182,8 @@ Common adjustments suggested by AuRE:
 
 ```bash
 # 1. Generate a model from a description
-create-model "Cu/Ti bilayer on Si in deuterated THF" \
-             data/combined/REFL_218281_combined_data_auto.txt \
+create-model --describe "Cu/Ti bilayer on Si in deuterated THF" \
+             --data data/combined/REFL_218281_combined_data_auto.txt \
              --out models/cu_thf.py
 
 # 2. Fit

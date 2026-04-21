@@ -69,7 +69,7 @@ The experiment and data run information is at the top of the header. The table a
 
 For data files representing an individal run/segment, the table in the header will only have one row, and the TwoTheta value will correspond to that single segment. In this case, we can directly apply any necessary angle offset to the entire model when fitting that file.
 
-**Co-refinement of multiple combined data files**: If we have multiple combined data files, we can in principle co-refine them together. However, this mode is not currently supported by AuRE since would require the implementation of flexible constraints between the model parameters for each file. Data intake should recognize this case and either reject it or only load one of the files with a warning that co-refinement of multiple combined files is not currently supported. The user can then choose to fit the files separately or combine them manually using external tools before loading into AuRE.
+**Co-refinement of multiple combined data files**: If we have multiple combined data files from different measurements of the same sample, we can co-refine them together with shared structural parameters but independent intensity / ambient. AuRE itself does **not** support this mode (it would require the implementation of flexible constraints between model parameters for each file). The analyzer tools do support it: `create-model --describe ... --data <file1> --data <file2> ...` auto-detects this case and generates a script with explicit constraint lines of the form ``experiment2.sample["X"].attr = experiment.sample["X"].attr`` plus ``problem = FitProblem([experiment, experiment2, ...])``. See the [create-model skill](../create-model/SKILL.md) for details.
 
 ## Common SLD Values (×10⁻⁶ Å⁻²)
 

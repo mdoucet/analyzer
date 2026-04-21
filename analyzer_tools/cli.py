@@ -105,8 +105,8 @@ def assess_partial_cli():
 
 
 def create_model_cli():
-    """Command-line interface for create-model (AuRE ModelDefinition bridge)."""
-    from .analysis.model_from_aure import main
+    """Command-line interface for create-model (Mode A JSON / Mode B LLM)."""
+    from .analysis.create_model import main
     main()
 
 

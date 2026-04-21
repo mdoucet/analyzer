@@ -58,13 +58,15 @@ TOOLS = {
     ),
     
     "create_model_script": ToolInfo(
-        name="Model Script Creator (AuRE)",
-        module="analyzer_tools.analysis.model_from_aure",
-        description="Generate an analyzer-convention refl1d model script from an AuRE ModelDefinition JSON (preferred) or a plain-English sample description (calls `aure analyze -m 0`).",
-        usage="create-model <definition.json|sample_description> [DATA_FILE] [--out models/<name>.py]",
+        name="Model Script Creator",
+        module="analyzer_tools.analysis.create_model",
+        description="Generate an analyzer-convention refl1d model script. Mode A converts an existing AuRE problem JSON (ModelDefinition or bumps-draft-03). Mode B generates a script directly via LLM from a natural-language sample description and one or more REF_L data files; it auto-detects case 1 (one combined file, QProbe), case 2 (multiple partial files, make_probe), or case 3 (multiple combined files co-refined with shared structural parameters — not supported by AuRE). Either mode also accepts --config FILE (YAML/JSON) to supply the flags.",
+        usage="create-model [SOURCE.json | --describe TEXT --data FILE [--data FILE ...]] [--out models/<name>.py] [--model-name NAME] [--config FILE]",
         examples=[
-            "create-model path/to/model_initial.json --out models/cu_thf.py",
-            "create-model 'Cu/Ti on Si in dTHF' data/combined/REFL_218281_combined_data_auto.txt --out models/cu_thf.py",
+            "create-model path/to/problem.json --out models/cu_thf.py",
+            "create-model --describe 'Cu/Ti on Si in D2O' --data data/REFL_218281_combined_data_auto.txt --out models/cu_thf.py",
+            "create-model --describe '2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O' --data REFL_226642_combined_data_auto.txt --data REFL_226652_combined_data_auto.txt --out models/corefine.py",
+            "create-model --config model-creation.yaml",
         ],
         data_type="combined"
     ),

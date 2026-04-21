@@ -139,72 +139,19 @@ def test_load_and_write_roundtrip(tmp_path: Path, cu_thf_definition: dict) -> No
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# CLI (Mode A — JSON input)
 # ---------------------------------------------------------------------------
 
 
 def test_cli_from_json(tmp_path: Path, cu_thf_definition: dict) -> None:
+    from analyzer_tools.analysis import create_model as cm
+
     json_path = tmp_path / "cu_thf.json"
     json_path.write_text(json.dumps(cu_thf_definition))
     out_path = tmp_path / "models" / "cu_thf.py"
 
     runner = CliRunner()
-    result = runner.invoke(mfa.main, [str(json_path), "--out", str(out_path)])
+    result = runner.invoke(cm.main, [str(json_path), "--out", str(out_path)])
     assert result.exit_code == 0, result.output
     assert out_path.exists()
     assert "create_fit_experiment" in out_path.read_text()
-
-
-def test_cli_description_mode_calls_aure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cu_thf_definition: dict) -> None:
-    """CLI --from-description path invokes invoke_aure_modeling and writes a script."""
-
-    def fake_invoke(
-        sample_description: str,
-        data_file: str,
-        *,
-        output_dir: str,
-        **_: object,
-    ) -> dict:
-        assert "Cu" in sample_description
-        assert os.path.exists(data_file)
-        return cu_thf_definition
-
-    monkeypatch.setattr(mfa, "invoke_aure_modeling", fake_invoke)
-
-    data_file = tmp_path / "data.txt"
-    data_file.write_text("0.01 0.1 0.01 0.001\n")
-    out_path = tmp_path / "models" / "cu_thf.py"
-
-    runner = CliRunner()
-    result = runner.invoke(
-        mfa.main,
-        [
-            "Cu/Ti on Si in dTHF",
-            str(data_file),
-            "--from-description",
-            "--out",
-            str(out_path),
-            "--aure-output",
-            str(tmp_path / "aure_work"),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert out_path.exists()
-    assert "create_fit_experiment" in out_path.read_text()
-
-
-# ---------------------------------------------------------------------------
-# _find_initial_definition
-# ---------------------------------------------------------------------------
-
-
-def test_find_initial_definition(tmp_path: Path) -> None:
-    models = tmp_path / "models"
-    models.mkdir()
-    a = models / "003_model_initial.json"
-    a.write_text("{}")
-    b = models / "005_model_initial.json"
-    b.write_text("{}")
-
-    found = mfa._find_initial_definition(tmp_path)
-    assert found == str(b)

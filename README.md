@@ -42,7 +42,7 @@ assess-result results/218281_cu_thf 218281 cu_thf    # evaluate (+ AuRE)
 
 - **End-to-end Pipeline** — `analyze-sample` runs the full workflow for one sample with a reduction-issue gate
 - **Data Quality Assessment** — Check partial data consistency before combining
-- **Model Generation** — `create-model` turns a sample description into a refl1d script via [AuRE](https://github.com/neutrons-ai/aure)
+- **Model Generation** — `create-model` generates a refl1d script either by converting an AuRE problem JSON or directly via LLM from a sample description (including multi-file co-refinement, which AuRE does not support)
 - **Model Fitting** — Wraps `aure analyze` to fit reflectivity data with uncertainty analysis
 - **LLM-powered Evaluation** — `assess-result` appends an AuRE-driven fit verdict to the report
 - **Automated Reporting** — Generate Markdown reports with plots
@@ -111,7 +111,7 @@ All commands are installed as entry points via `pip install -e .`:
 | `run-fit` | Fit combined data (wraps `aure analyze`; `--legacy` for the old fitter) |
 | `assess-partial` | Assess partial-data overlap quality; `--llm-commentary` adds AuRE commentary |
 | `assess-result` | Evaluate fit quality + append an AuRE LLM verdict to the report |
-| `create-model` | Generate a refl1d script from a sample description or `ModelDefinition` JSON (via AuRE) |
+| `create-model` | Generate a refl1d script from a problem JSON (Mode A) or directly via LLM from a description + data files (Mode B) |
 | `theta-offset` | Compute the theta offset for a Liquids Reflectometer run |
 | `eis-intervals` | Extract EIS timing intervals to JSON |
 | `iceberg-packager` | Package tNR data into Parquet files |
@@ -170,7 +170,8 @@ assess-partial 218281
 
 ### 2. Standard Fitting
 ```bash
-create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+create-model --describe "Cu/Ti on Si in dTHF" \
+             --data data/combined/REFL_218281_combined_data_auto.txt \
              --out models/cu_thf.py
 run-fit 218281 cu_thf                     # fit the data
 assess-result 218281 cu_thf               # evaluate fit quality (+ AuRE)
@@ -194,24 +195,88 @@ docker compose run analyzer eis-reduce-events \
 
 ## Models
 
-Models are Python files in `models/` that define a `create_fit_experiment(q, dq, data, errors)`
+Models are Python files in the directory set by `ANALYZER_MODELS_DIR`
+(default `models/`) that define a `create_fit_experiment(q, dq, data, errors)`
 function returning a `refl1d.experiment.Experiment`.
 
-Available models: `cu_thf`, `cu_thf_no_oxide`, `cu_thf_tiny`,
-`ionomer_sld_1`, `ionomer_sld_2`, `ionomer_sld_3`.
-
 ```bash
-# Generate a model from a plain-English description (via AuRE)
-create-model "Cu/Ti on Si in dTHF" \
-             data/combined/REFL_218281_combined_data_auto.txt \
+# Mode B — generate from a description + one combined file (case 1)
+create-model --describe "Cu/Ti on Si in D2O" \
+             --data data/combined/REFL_218281_combined_data_auto.txt \
              --out models/cu_thf.py
 
-# Or from an existing AuRE ModelDefinition JSON
+# Mode B — co-refine multiple combined files (case 3; not supported by AuRE)
+create-model --describe "2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O" \
+             --data data/combined/REFL_226642_combined_data_auto.txt \
+             --data data/combined/REFL_226652_combined_data_auto.txt \
+             --out models/Cu-D2O-corefine.py
+
+# Mode A — from an existing AuRE problem JSON
 create-model path/to/NNN_model_initial.json --out models/cu_thf.py
 
-# Copy an existing model as a starting point and edit bounds manually
+# Either mode — options from a YAML/JSON config
+create-model --config model-creation.yaml
+
+# Or start from an existing model and edit bounds manually
 cp models/cu_thf.py models/my_model.py
 ```
+
+### `--config` file format
+
+`--config` accepts YAML or JSON in two shapes.
+
+**Flat (one job).** Top-level keys (CLI flags override, relative paths
+resolve against the config file's directory):
+
+| Key | Aliases | Meaning |
+|---|---|---|
+| `describe` | `description`, `sample_description` | Mode B sample description |
+| `data` | `data_files` | Mode B: list of REF_L data files |
+| `data_file` | — | Mode B: single extra data file, prepended to `data` |
+| `source` | — | Mode A: path to problem JSON |
+| `out` | — | Output script path |
+| `model_name` | `name` | Name in docstring / default filename |
+
+```yaml
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
+data:
+  - Rawdata/REFL_226642_combined_data_auto.txt
+  - Rawdata/REFL_226652_combined_data_auto.txt
+out: Models/Cu-D2O-corefine.py
+model_name: corefine_226642_226652
+```
+
+**Jobs list (batch).** AuRE-batch-manifest-compatible shape. Each entry is
+one `create-model` invocation; AuRE-specific keys (`fit_method`, `fit_steps`,
+`llm_*`, `command`, …) are **ignored**. Only `defaults.output_root` is read
+from `defaults:`.
+
+```yaml
+defaults:
+  output_root: ./Models          # fallback output directory
+
+jobs:
+  - name: copper_oxide           # → Models/copper_oxide.py
+    sample_description: >-
+      2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O.
+    data_file: Rawdata/REFL_226642_1_226642_partial.txt
+    data_files:
+      - Rawdata/REFL_226642_2_226643_partial.txt
+      - Rawdata/REFL_226642_3_226644_partial.txt
+
+  - name: corefine_226642_226652
+    description: 2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O
+    data:
+      - Rawdata/REFL_226642_combined_data_auto.txt
+      - Rawdata/REFL_226652_combined_data_auto.txt
+    out: Models/Cu-D2O-corefine.py    # overrides output_root
+```
+
+Rules: each job must be either Mode A (`source:`) **or** Mode B (`describe`
++ data files), not both; when `jobs:` is present do not also pass
+`SOURCE`/`--describe`/`--data`/`--out` on the command line. See the
+[create-model skill](skills/create-model/SKILL.md) for full details.
 
 To widen or tighten a parameter range, edit the model file's
 `.range(min, max)` calls directly and re-fit. (The old

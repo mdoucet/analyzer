@@ -88,16 +88,33 @@ parameter table, and markdown report in `reports/`.
 
 #### 3. `create-model` — Generate a refl1d model script
 
-Primary tool for building models. Accepts a plain-English sample
-description (shells out to `aure analyze -m 0`) or a `ModelDefinition` JSON.
+Two modes. **Mode A** converts an existing AuRE problem JSON. **Mode B**
+generates a script via LLM from a natural-language description plus one or
+more REF_L data files; it auto-detects which of the three cases applies:
+
+- **Case 1** — one combined file (`QProbe`).
+- **Case 2** — multiple partial files (`REFL_{set}_{part}_{run}_partial.txt`)
+  sharing a `set_id` (`make_probe` per segment).
+- **Case 3** — multiple combined files co-refined with shared structural
+  parameters (**only** supported by this tool, not by AuRE).
 
 ```bash
-# From a sample description
-create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+# Mode A — from a problem JSON
+create-model path/to/problem.json --out models/cu_thf.py
+
+# Mode B — description + one combined file (case 1)
+create-model --describe "50 nm Cu / 3 nm Ti on Si in D2O" \
+             --data data/combined/REFL_218281_combined_data_auto.txt \
              --out models/cu_thf.py
 
-# From a ModelDefinition JSON
-create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+# Mode B — co-refine two combined files (case 3)
+create-model --describe "2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O" \
+             --data data/combined/REFL_226642_combined_data_auto.txt \
+             --data data/combined/REFL_226652_combined_data_auto.txt \
+             --out models/Cu-D2O-corefine.py
+
+# Any mode — options from a YAML/JSON config (flat or AuRE-style `jobs:` list)
+create-model --config model-creation.yaml
 ```
 
 ### Model adjustment
@@ -191,7 +208,7 @@ Reduction is **never** auto-executed.
 ## Standard Fitting Workflow (manual)
 
 ```
-create-model <description|definition.json> --out models/<name>.py
+create-model --describe "<sample description>" --data <file> [--data <file2> ...] --out models/<name>.py
     │
     ▼
 run-fit <SET_ID> <MODEL>
@@ -209,8 +226,9 @@ assess-result results/<SET_ID>_<MODEL> <SET_ID> <MODEL> --context "<description>
 ### Complete example
 
 ```bash
-# 1. Generate a model
-create-model "Cu/Ti on Si in dTHF" data/combined/REFL_218281_combined_data_auto.txt \
+# 1. Generate a model (Mode B — LLM)
+create-model --describe "Cu/Ti on Si in dTHF" \
+             --data data/combined/REFL_218281_combined_data_auto.txt \
              --out models/cu_thf.py
 
 # 2. Fit

@@ -38,6 +38,7 @@ Consult these when you need to understand how to use a tool, what inputs/outputs
 
 - `skills/data-organization/` — Data layout, file naming, column formats
 - `skills/models/` — Model files, available models, creating/adjusting models
+- `skills/create-model/` — `create-model` CLI (Mode A JSON, Mode B LLM; cases 1/2/3)
 - `skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
 - `skills/fitting/` — create-model → run-fit → assess-result (+ AuRE evaluation) workflow
 - `skills/partial-assessment/` — Partial data overlap quality checks
