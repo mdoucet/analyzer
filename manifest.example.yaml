@@ -1,76 +1,36 @@
-# --------------------------------------------------------------
-# Batch manifest
-# Each entry under "jobs" is one analysis run.
-# Copy this file, edit the values, then run:
-#
-#   analyzer-batch manifest.yaml
-#   analyzer-batch manifest.yaml --dry-run
-#   analyzer-batch manifest.yaml --jobs copper_offset,gold_offset
-#
-# All paths are relative to the manifest file's directory unless
-# they are absolute.
-#
-# Every job must have:
-#   name  - unique label (used for logging and --jobs filter)
-#   tool  - one of the CLI entry points (run-fit, assess-partial,
-#           assess-result, theta-offset, eis-intervals, etc.)
-#   args  - list of positional and --flag arguments, exactly as you
-#           would type them on the command line
-#
-# The optional top-level "defaults" section supplies fallback
-# key/values that are merged into every job (jobs can override).
-# --------------------------------------------------------------
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
+  Neutrons enter from the silicon side.
 
-# -- Shared defaults (applied to every job unless overridden) --
-defaults:
-  output_root: ./output       # each job writes to <output_root>/<job name>
+# Optional: emit a DATA_DIR = "<data_dir>" line at the top of the
+# generated model script. File paths listed below are rewritten as
+# os.path.join(DATA_DIR, <relative path>) in the script, so anyone can
+# share the .py file and only edit DATA_DIR to point at their local
+# data copy. Relative values resolve against this manifest's directory
+# at generation time.
+data_dir: data
 
-# -- Jobs ------------------------------------------------------
-jobs:
-  # -- Theta-offset calculations -------------------------------
-  - name: copper_offset
-    tool: theta-offset
-    args:
-      - /SNS/REF_L/IPTS-33699/nexus/REF_L_226642.nxs.h5
-      - --db
-      - /SNS/REF_L/shared/autoreduce/DB_226559.dat
-      - --log
-      - offsets.csv
+states:
+  # One state per physical sample condition. Within a state ALL data
+  # files see exactly the same Sample object, so every structural
+  # parameter (layer thickness, SLD, roughness, substrate interface, …)
+  # is automatically tied across that state's files — there is no knob
+  # to untie them.
+  #
+  # ACROSS states, tying is controlled by `shared_parameters` (whitelist)
+  # or `unshared_parameters` (blacklist — mutually exclusive).
 
-  - name: gold_offset
-    tool: theta-offset
-    args:
-      - /SNS/REF_L/IPTS-33699/nexus/REF_L_226700.nxs.h5
-      - --db
-      - /SNS/REF_L/shared/autoreduce/DB_226559.dat
-      - --ymin
-      - "135"
-      - --ymax
-      - "170"
-      - --log
-      - offsets.csv
+  - name: run_226642                 # partials: 3 segments, one sample
+    data:
+      - data/REFL_226642_1_226642_partial.txt
+      - data/REFL_226642_2_226643_partial.txt
+      - data/REFL_226642_3_226644_partial.txt
+    theta_offset:      {init: 0.0, min: -0.02, max: 0.02}
+    sample_broadening: {init: 0.0, min:  0.0,  max: 0.01}   # or `true` for defaults
 
-  # -- Partial data quality checks -----------------------------
-  - name: check_218281
-    tool: assess-partial
-    args:
-      - "218281"
+  - name: run_226652                 # one combined file → one experiment
+    data:
+      - data/REFL_226652_combined_data_auto.txt
+    back_reflection: true            # flip probe geometry per state
 
-  - name: check_218386
-    tool: assess-partial
-    args:
-      - "218386"
-
-  # -- Fit + assess workflow -----------------------------------
-  - name: fit_copper
-    tool: run-fit
-    args:
-      - "218281"
-      - cu_thf
-
-  - name: assess_copper
-    tool: assess-result
-    args:
-      - results/218281_cu_thf
-      - "218281"
-      - cu_thf
+model_name: Cu-D2O-corefine-226642-226652-parts

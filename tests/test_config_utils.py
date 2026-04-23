@@ -13,11 +13,21 @@ import pytest
 import analyzer_tools.config_utils as config_mod
 from analyzer_tools.config_utils import Config, get_config, get_data_organization_info
 
+# Captured before any autouse fixture can stub it.
+_real_load_env = config_mod._load_env
+
 
 @pytest.fixture(autouse=True)
 def reset_singleton(monkeypatch):
-    """Reset the global _config_instance before every test."""
+    """Reset the global _config_instance and disable the .env cascade so
+    tests aren't contaminated by a project or user-global .env file."""
     monkeypatch.setattr(config_mod, "_config_instance", None)
+    # Clear every known ANALYZER_* default so cascade loads can be observed.
+    for key in config_mod._DEFAULTS:
+        monkeypatch.delenv(key, raising=False)
+    # Stub the cascade: tests that want .env loading call `_load_env` directly
+    # or construct `Config(dotenv_path=...)` after re-enabling the real impl.
+    monkeypatch.setattr(config_mod, "_load_env", lambda dotenv_path=None: [])
     yield
 
 
@@ -78,6 +88,8 @@ class TestConfig:
 
     def test_dotenv_file_is_loaded(self, monkeypatch, tmp_path):
         """Config loads values from a dotenv file when dotenv_path is given."""
+        # Restore the real cascade loader for this test.
+        monkeypatch.setattr(config_mod, "_load_env", _real_load_env)
         env_file = tmp_path / ".env"
         env_file.write_text("ANALYZER_RESULTS_DIR=/from/dotenv\n")
         # Make sure the env var is not already set so dotenv value is picked up.
@@ -88,6 +100,7 @@ class TestConfig:
 
     def test_env_var_wins_over_dotenv(self, monkeypatch, tmp_path):
         """An existing env var is NOT overridden by the .env file (override=False)."""
+        monkeypatch.setattr(config_mod, "_load_env", _real_load_env)
         env_file = tmp_path / ".env"
         env_file.write_text("ANALYZER_RESULTS_DIR=/from/dotenv\n")
         monkeypatch.setenv("ANALYZER_RESULTS_DIR", "/from/shell")

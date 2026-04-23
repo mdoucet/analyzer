@@ -400,3 +400,446 @@ def test_cli_rejects_both_modes_simultaneously(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Multi-state (YAML "states:" form)
+# ---------------------------------------------------------------------------
+
+
+def _copy_partial_set(src_dir: Path, dst_dir: Path, set_id: str) -> List[Path]:
+    """Copy REFL_{set_id}_{part}_*_partial.txt files and return the dst paths."""
+    out: List[Path] = []
+    for p in sorted(src_dir.iterdir()):
+        if p.name.startswith(f"REFL_{set_id}_") and p.name.endswith("_partial.txt"):
+            d = dst_dir / p.name
+            d.write_bytes(p.read_bytes())
+            out.append(d)
+    return out
+
+
+def test_build_state_specs_combined_only(tmp_path: Path) -> None:
+    combined = tmp_path / "REFL_226642_combined_data_auto.txt"
+    combined.touch()
+    states = mg.build_state_specs(
+        [{"name": "a", "data": [combined.name]}],
+        base_dir=tmp_path,
+    )
+    assert len(states) == 1
+    assert states[0].kind == mg.STATE_COMBINED
+    assert states[0].data_files[0] == combined
+
+
+def test_build_state_specs_partials_reads_thetas() -> None:
+    partials = _list_sample_partials()
+    states = mg.build_state_specs([
+        {"name": "run1", "data": [str(p) for p in partials]},
+    ])
+    assert states[0].kind == mg.STATE_PARTIALS
+    assert len(states[0].thetas) == len(partials)
+    assert all(isinstance(t, float) for t in states[0].thetas)
+
+
+def test_build_state_specs_rejects_mixed_within_state(tmp_path: Path) -> None:
+    combined = tmp_path / "REFL_226642_combined_data_auto.txt"
+    partial = tmp_path / "REFL_226642_1_226642_partial.txt"
+    # Need real header for partial; steal from samples.
+    combined.touch()
+    partial.write_bytes(
+        (SAMPLE_DATA_DIR / "partial" / "REFL_218281_1_218281_partial.txt").read_bytes()
+    )
+    with pytest.raises(ValueError, match="cannot mix"):
+        mg.build_state_specs([
+            {"name": "bad", "data": [combined.name, partial.name]}
+        ], base_dir=tmp_path)
+
+
+def test_build_state_specs_theta_offset_requires_partials(tmp_path: Path) -> None:
+    combined = tmp_path / "REFL_226642_combined_data_auto.txt"
+    combined.touch()
+    with pytest.raises(ValueError, match="only meaningful for multi-segment"):
+        mg.build_state_specs([
+            {
+                "name": "a",
+                "data": [combined.name],
+                "theta_offset": {"min": -0.02, "max": 0.02},
+            }
+        ], base_dir=tmp_path)
+
+
+def test_resolve_shared_parameters_whitelist(model_spec: mg.ModelSpec) -> None:
+    out = mg.resolve_shared_parameters(
+        model_spec, shared=["Cu.thickness", "Ti.material.rho"]
+    )
+    assert out == ["Cu.thickness", "Ti.material.rho"]
+
+
+def test_resolve_shared_parameters_blacklist(model_spec: mg.ModelSpec) -> None:
+    out = mg.resolve_shared_parameters(
+        model_spec, unshared=["CuOx.thickness"]
+    )
+    assert "CuOx.thickness" not in out
+    assert "Cu.thickness" in out
+    # Ambient and intensity are not in the default either way.
+    assert "D2O.material.rho" not in out
+
+
+def test_resolve_shared_parameters_mutual_exclusion(
+    model_spec: mg.ModelSpec,
+) -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        mg.resolve_shared_parameters(
+            model_spec, shared=["Cu.thickness"], unshared=["Ti.thickness"]
+        )
+
+
+def _list_sample_partials() -> List[Path]:
+    return sorted(
+        (SAMPLE_DATA_DIR / "partial").glob("REFL_218281_*_partial.txt")
+    )
+
+
+def test_render_states_combined_plus_partials(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    # State A: 3 partials; State B: one (synthetic) combined file.
+    partials = _list_sample_partials()
+    combined = tmp_path / "REFL_999999_combined_data_auto.txt"
+    combined.touch()
+
+    states = mg.build_state_specs(
+        [
+            {
+                "name": "run_a",
+                "data": [str(p) for p in partials],
+                "theta_offset": {"init": 0.0, "min": -0.02, "max": 0.02},
+                "sample_broadening": {"init": 0.0, "min": 0.0, "max": 0.01},
+            },
+            {"name": "run_b", "data": [str(combined)]},
+        ]
+    )
+
+    shared = mg.resolve_shared_parameters(
+        model_spec, shared=["Cu.thickness", "Cu.material.rho"]
+    )
+    script = mg.render_states_script(
+        model_spec, states, model_name="cu_multi", shared_parameters=shared
+    )
+    ast.parse(script)
+
+    # Per-state variables.
+    assert "sample_run_a = create_sample(back_reflection=False)" in script
+    assert "sample_run_b = create_sample(back_reflection=False)" in script
+    # Multi-experiment FitProblem with all 4 experiments (3 partials + 1 combined).
+    assert "FitProblem([" in script
+    for name in (
+        "experiment_run_a_1",
+        "experiment_run_a_2",
+        "experiment_run_a_3",
+        "experiment_run_b",
+    ):
+        assert name in script
+
+    # theta_offset / sample_broadening only on state a, shared across its probes.
+    assert "theta_offset_run_a" in script
+    assert "sample_broadening_run_a" in script
+    for i in (1, 2, 3):
+        assert f"probe_run_a_{i}.theta_offset = theta_offset_run_a" in script
+        assert (
+            f"probe_run_a_{i}.sample_broadening = sample_broadening_run_a" in script
+        )
+    # State b has no theta_offset / sample_broadening assignment.
+    assert "probe_run_b.theta_offset" not in script
+
+    # Shared parameter constraint from state a's sample onto state b's sample.
+    assert (
+        "sample_run_b['Cu'].thickness = sample_run_a['Cu'].thickness" in script
+    )
+    assert (
+        "sample_run_b['Cu'].material.rho = sample_run_a['Cu'].material.rho"
+        in script
+    )
+
+    # Probe helpers are both present because we have both kinds of states.
+    assert "def create_q_probe" in script
+    assert "def create_angle_probe" in script
+    assert "from refl1d.probe import make_probe" in script
+
+
+def test_cli_states_yaml_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_spec_dict: Dict[str, Any],
+) -> None:
+    import yaml
+
+    partials = _list_sample_partials()
+    # Copy partial files so the config can use relative paths.
+    rel_partials: List[str] = []
+    for p in partials:
+        dst = tmp_path / p.name
+        dst.write_bytes(p.read_bytes())
+        rel_partials.append(p.name)
+
+    combined = tmp_path / "REFL_999999_combined_data_auto.txt"
+    combined.touch()
+
+    out_path = tmp_path / "models" / "multi.py"
+    config = {
+        "describe": "CuOx / Cu / Ti on Si in D2O",
+        "model_name": "multi",
+        "out": str(out_path),
+        "unshared_parameters": ["CuOx.thickness"],
+        "states": [
+            {
+                "name": "run_a",
+                "data": rel_partials,
+                "theta_offset": {"init": 0.0, "min": -0.02, "max": 0.02},
+            },
+            {
+                "name": "run_b",
+                "data": [combined.name],
+            },
+        ],
+    }
+    cfg_path = tmp_path / "model.yaml"
+    cfg_path.write_text(yaml.safe_dump(config))
+
+    monkeypatch.setattr(
+        mg,
+        "call_llm_for_model_spec",
+        lambda messages, **kw: mg.model_spec_from_dict(model_spec_dict),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cm.main, ["--config", str(cfg_path)])
+    assert result.exit_code == 0, result.output
+    content = out_path.read_text()
+    ast.parse(content)
+    # unshared_parameters removes CuOx.thickness from the default share set.
+    assert (
+        "sample_run_b['CuOx'].thickness = sample_run_a['CuOx'].thickness"
+        not in content
+    )
+    # Cu.thickness is still shared (it's in the default set).
+    assert (
+        "sample_run_b['Cu'].thickness = sample_run_a['Cu'].thickness" in content
+    )
+
+
+def test_back_reflection_per_state(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    """State-level back_reflection controls stack ORIENTATION only.
+
+    No ``probe.back_reflectivity`` line should ever be emitted. The renderer
+    passes the flag into ``create_sample(back_reflection=...)`` per state.
+    """
+    partials = _list_sample_partials()
+    combined = tmp_path / "REFL_999999_combined_data_auto.txt"
+    combined.touch()
+
+    states = mg.build_state_specs(
+        [
+            {
+                "name": "front",
+                "data": [str(combined)],
+                "back_reflection": False,
+            },
+            {
+                "name": "back",
+                "data": [str(p) for p in partials],
+                "back_reflection": True,
+            },
+        ]
+    )
+    assert states[0].back_reflection is False
+    assert states[1].back_reflection is True
+
+    script = mg.render_states_script(
+        model_spec, states, model_name="br", shared_parameters=[]
+    )
+    ast.parse(script)
+    # The probe.back_reflectivity flag must never be assigned — stack order
+    # encodes beam direction instead. (The helper docstring may mention the
+    # word, so we check specifically for ``.back_reflectivity =`` assignments.)
+    assert ".back_reflectivity =" not in script
+    # Each state receives its own create_sample(...) call with the flag.
+    assert "sample_front = create_sample(back_reflection=False)" in script
+    assert "sample_back = create_sample(back_reflection=True)" in script
+
+
+def test_back_reflection_inherits_from_spec(
+    model_spec_dict: Dict[str, Any], tmp_path: Path
+) -> None:
+    """When a state omits back_reflection, spec.back_reflection is used."""
+    combined = tmp_path / "REFL_999999_combined_data_auto.txt"
+    combined.touch()
+
+    spec_dict = dict(model_spec_dict)
+    spec_dict["back_reflection"] = True
+    spec = mg.model_spec_from_dict(spec_dict)
+
+    states = mg.build_state_specs(
+        [{"name": "s1", "data": [str(combined)]}]  # no back_reflection key
+    )
+    assert states[0].back_reflection is None
+
+    script = mg.render_states_script(
+        spec, states, model_name="br2", shared_parameters=[]
+    )
+    assert ".back_reflectivity =" not in script
+    assert "sample_s1 = create_sample(back_reflection=True)" in script
+
+
+def test_back_reflection_rejects_non_bool(tmp_path: Path) -> None:
+    combined = tmp_path / "REFL_999999_combined_data_auto.txt"
+    combined.touch()
+    with pytest.raises(ValueError, match="back_reflection"):
+        mg.build_state_specs(
+            [{"name": "x", "data": [str(combined)], "back_reflection": "yes"}]
+        )
+
+
+def test_render_case1_back_reflection_emits_probe_flag(
+    model_spec_dict: Dict[str, Any], tmp_path: Path
+) -> None:
+    """Case-1 with back_reflection=True emits ambient-first stack, no probe flag."""
+    spec_dict = dict(model_spec_dict)
+    spec_dict["back_reflection"] = True
+    spec = mg.model_spec_from_dict(spec_dict)
+    data_file = tmp_path / "REFL_218281_combined_data_auto.txt"
+    script = mg.render_case1_script(spec, data_file, model_name="c1br")
+    ast.parse(script)
+    # With back_reflection=True the stack is ambient-first (D2O | ... | Si)
+    # which, by refl1d's convention, means beam enters through Si. No probe
+    # flag is ever set.
+    assert ".back_reflectivity =" not in script
+    # D2O must appear before Si on the sample = ... line.
+    stack_line = next(ln for ln in script.splitlines() if "sample =" in ln)
+    assert stack_line.index("D2O") < stack_line.index("Si")
+
+
+def test_render_case1_front_reflection_reverses_stack(
+    model_spec_dict: Dict[str, Any], tmp_path: Path
+) -> None:
+    """Case-1 with back_reflection=False emits substrate-first (reversed) stack."""
+    spec_dict = dict(model_spec_dict)
+    spec_dict["back_reflection"] = False
+    spec = mg.model_spec_from_dict(spec_dict)
+    data_file = tmp_path / "REFL_218281_combined_data_auto.txt"
+    script = mg.render_case1_script(spec, data_file, model_name="c1fr")
+    ast.parse(script)
+    assert ".back_reflectivity =" not in script
+    stack_line = next(ln for ln in script.splitlines() if "sample =" in ln)
+    # Reversed: Si comes before D2O.
+    assert stack_line.index("Si") < stack_line.index("D2O")
+
+
+def test_data_dir_variable_case1(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    """data_dir emits DATA_DIR and rewrites file paths via os.path.join."""
+    data_dir_abs = tmp_path / "data"
+    data_dir_abs.mkdir()
+    data_file = data_dir_abs / "REFL_218281_combined_data_auto.txt"
+    data_file.touch()
+    script = mg.render_case1_script(
+        model_spec,
+        data_file,
+        model_name="d1",
+        data_dir="data",
+        data_dir_abs=str(data_dir_abs),
+    )
+    ast.parse(script)
+    assert "DATA_DIR = 'data'" in script
+    assert (
+        "data_file = os.path.join(DATA_DIR, "
+        "'REFL_218281_combined_data_auto.txt')"
+    ) in script
+    # Ensure the raw absolute path is NOT embedded in the script.
+    assert str(data_file) not in script
+
+
+def test_data_dir_variable_states(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    """States renderer threads data_dir through every create_*_probe call."""
+    partials = _list_sample_partials()
+    data_dir_abs = partials[0].parent.resolve()
+    states = mg.build_state_specs(
+        [{"name": "s1", "data": [str(p) for p in partials]}]
+    )
+    script = mg.render_states_script(
+        model_spec,
+        states,
+        model_name="ds",
+        shared_parameters=[],
+        data_dir="data/partial",
+        data_dir_abs=str(data_dir_abs),
+    )
+    ast.parse(script)
+    assert "DATA_DIR = 'data/partial'" in script
+    for p in partials:
+        assert f"'{p.name}'" in script  # basename appears under os.path.join
+        # Absolute path should have been stripped.
+        assert str(p.parent) not in script or f"os.path.join(DATA_DIR, '{p.name}')" in script
+
+
+def test_data_dir_omitted_keeps_absolute_paths(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    """With no data_dir, behaviour is unchanged (no DATA_DIR line)."""
+    data_file = tmp_path / "REFL_218281_combined_data_auto.txt"
+    data_file.touch()
+    script = mg.render_case1_script(model_spec, data_file, model_name="nd")
+    ast.parse(script)
+    assert "DATA_DIR" not in script
+    assert f"data_file = {str(data_file)!r}" in script
+
+
+def test_data_dir_out_of_tree_falls_back(
+    model_spec: mg.ModelSpec, tmp_path: Path
+) -> None:
+    """Files that don't live under data_dir keep their absolute path."""
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    out_file = outside / "REFL_218281_combined_data_auto.txt"
+    out_file.touch()
+    script = mg.render_case1_script(
+        model_spec,
+        out_file,
+        model_name="oot",
+        data_dir="inside",
+        data_dir_abs=str(inside),
+    )
+    ast.parse(script)
+    assert "DATA_DIR = 'inside'" in script
+    assert f"data_file = {str(out_file)!r}" in script
+
+
+def test_cli_states_rejects_shared_and_unshared(tmp_path: Path) -> None:
+    import yaml
+
+    partials = _list_sample_partials()
+    rel_partials = []
+    for p in partials:
+        dst = tmp_path / p.name
+        dst.write_bytes(p.read_bytes())
+        rel_partials.append(p.name)
+
+    config = {
+        "describe": "x",
+        "states": [{"name": "a", "data": rel_partials}],
+        "shared_parameters": ["Cu.thickness"],
+        "unshared_parameters": ["Ti.thickness"],
+    }
+    cfg_path = tmp_path / "model.yaml"
+    cfg_path.write_text(yaml.safe_dump(config))
+
+    runner = CliRunner()
+    result = runner.invoke(cm.main, ["--config", str(cfg_path)])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output

@@ -80,6 +80,7 @@ are resolved against the **config file's directory**.
 | `source` | — | Mode A: path to problem JSON |
 | `out` | — | Output script path |
 | `model_name` | `name` | Name used in docstring and default filename |
+| `data_dir` | — | Emit `DATA_DIR = "<value>"` at the top of the generated script; file paths below are rewritten as `os.path.join(DATA_DIR, …)` so the script is portable. Relative values resolve against the manifest directory. |
 
 ```yaml
 # model-creation.yaml  (flat)
@@ -139,6 +140,95 @@ Rules for the jobs form:
   `--config` has a `jobs:` list.
 - `defaults.output_root` is the only field read from `defaults:`. Everything
   else there is ignored.
+
+#### States (multi-state co-refinement)
+
+Case 3 (multiple combined files) ties every parameter either fully or via a
+single `shared_parameters` list. Use the `states:` form when you need finer
+control, e.g. several measurements of the *same* sample at different times
+where most structural parameters should be tied but the θ offset and sample
+broadening should float **per state**, or when you want to mix partials and
+combined data in one co-refinement.
+
+A **state** groups data files that share one physical sample (so one `Sample`
+stack). Within a state, all files use the same material / thickness /
+roughness parameters; across states, the `shared_parameters` whitelist (or
+`unshared_parameters` blacklist) controls which structural attributes are
+tied.
+
+```yaml
+# model-creation.yaml  (states)
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
+  Neutrons enter from the silicon side.
+
+states:
+  - name: run_226642           # partials: all three segments share one sample
+    data:
+      - Rawdata/REFL_226642_1_226642_partial.txt
+      - Rawdata/REFL_226642_2_226643_partial.txt
+      - Rawdata/REFL_226642_3_226644_partial.txt
+    theta_offset:              # shared across the three segments of this state
+      init: 0.0
+      min:  -0.02
+      max:   0.02
+    sample_broadening:         # same {init, min, max} syntax as theta_offset
+      init: 0.0
+      min:  0.0
+      max:  0.05
+    # Either key also accepts `true` for sensible defaults, or `false`/omitted
+    # to disable. Defaults: theta_offset = {0, -0.02, 0.02};
+    # sample_broadening = {0, 0, 0.05}.
+
+  - name: run_226652           # single combined file → no theta_offset allowed
+    data:
+      - Rawdata/REFL_226652_combined_data_auto.txt
+    back_reflection: true      # neutrons enter through the substrate for
+                               # this state only; others keep their default
+
+# Whitelist (exact set) OR blacklist (subtracted from the default).
+shared_parameters:
+  - Cu.thickness
+  - Cu.material.rho
+  - Cu.interface
+  - Ti.thickness
+  - Ti.material.rho
+  - Ti.interface
+# unshared_parameters: [CuOx.thickness]   # mutually exclusive with the above
+
+out: Models/Cu-D2O-corefine.py
+model_name: corefine
+```
+
+Rules for the states form:
+
+- **Within a state, every structural parameter is tied across the state's
+  data files.** The renderer creates one Sample object per state and
+  reuses it for every probe in that state; there is no per-segment layer
+  variation. The same holds for the per-state nuisance parameters
+  (`theta_offset`, `sample_broadening`) — they are single `Parameter`
+  objects shared by every probe of that state.
+- A state's data files must all be the same kind: **all partials of one
+  set_id**, or **one combined file**. Mixing within a state is rejected.
+- `theta_offset` and `sample_broadening` are only allowed on partial-kind
+  states (they are meaningful across multiple probe segments). Accepted
+  forms: `false`/omitted (fixed), `true` (defaults), or a `{init, min, max}`
+  dict.
+- `back_reflection: true` tells the renderer that this state's beam enters
+  through the substrate (buried-interface geometry, e.g. a silicon block
+  illuminated from the bulk side). `back_reflection: false` is standard
+  front-reflection geometry (beam enters through the ambient). The flag
+  controls **stack orientation only** — the renderer emits the layer
+  pipe-expression in the correct order so refl1d's default
+  `probe.back_reflectivity = False` always gives correct physics. We never
+  set `probe.back_reflectivity` in generated scripts. If the key is
+  omitted on a state, the spec-level default (set by the LLM from the
+  sample description) is used.
+- `shared_parameters` and `unshared_parameters` are mutually exclusive.
+  When neither is set, a sensible default (every layer.thickness,
+  layer.material.rho, layer.interface, plus substrate.interface) is shared.
+- `states:` may not be combined with top-level `data:` / `source:`. In a
+  `jobs:` list, each job picks exactly one shape.
 
 ## What the LLM must return
 

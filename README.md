@@ -128,7 +128,7 @@ analyzer-tools --help-tool partial # detailed help for a tool
 
 ## Configuration
 
-Copy `.env.example` to `.env` and edit the values:
+Copy `.env.example` to `.env` in the project directory and edit the values:
 
 ```bash
 cp .env.example .env
@@ -144,7 +144,52 @@ ANALYZER_COMBINED_DATA_TEMPLATE=REFL_{set_id}_combined_data_auto.txt
 ANALYZER_MODELS_DIR=models
 ```
 
-Variables already set in your shell take precedence over the `.env` file.
+### `.env` cascade
+
+Analyzer CLIs can be invoked from **any** directory (e.g. a per-sample data
+folder). On startup, `.env` files are loaded in decreasing priority — the
+first setter wins:
+
+1. **Process environment** — variables already `export`ed in your shell.
+2. **`--env PATH`** (on supported commands) or **`$ANALYZER_ENV_FILE`**.
+3. **Project `.env`** — the nearest `.env` walking up from the current
+   working directory.
+4. **User-global `.env`** — `~/.config/analyzer/.env`
+   (override dir via `$ANALYZER_CONFIG_DIR` or `$XDG_CONFIG_HOME/analyzer`).
+
+Recommended split:
+
+- **User-global** `~/.config/analyzer/.env` → LLM credentials used by every
+  project (`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL`).
+- **Project / sample** `.env` in the data folder → path overrides
+  (`ANALYZER_MODELS_DIR`, `ANALYZER_RESULTS_DIR`, …) and any per-sample
+  LLM overrides.
+
+```bash
+# First-time setup of user-global credentials
+mkdir -p ~/.config/analyzer
+cat > ~/.config/analyzer/.env <<'EOF'
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=sk-...
+EOF
+```
+
+With that in place, `create-model`, `assess-result`, and friends work from
+any project directory without re-configuring the LLM.
+
+### LLM / AuRE variables
+
+Required for `create-model` Mode B and `assess-result`'s LLM evaluation:
+
+| Variable | Meaning |
+|---|---|
+| `LLM_PROVIDER` | `openai` \| `gemini` \| `alcf` \| `local` |
+| `LLM_MODEL` | Model name (e.g. `gpt-4o`, `gpt-oss:120b`) |
+| `LLM_API_KEY` | API key (or `OPENAI_API_KEY` / `GEMINI_API_KEY`) |
+| `LLM_BASE_URL` | Base URL for local / OpenAI-compat endpoints |
+| `LLM_TEMPERATURE` | Default `0.0` |
+| `LLM_TIMEOUT` | Request timeout in seconds |
 
 
 ## Data Organization
@@ -277,6 +322,16 @@ Rules: each job must be either Mode A (`source:`) **or** Mode B (`describe`
 + data files), not both; when `jobs:` is present do not also pass
 `SOURCE`/`--describe`/`--data`/`--out` on the command line. See the
 [create-model skill](skills/create-model/SKILL.md) for full details.
+
+**States (multi-state co-refinement).** Use a top-level `states:` list when
+you want to co-refine measurements of the same sample — a state groups
+files that share one Sample stack, and across states you control which
+structural parameters are tied with `shared_parameters` (whitelist) or
+`unshared_parameters` (blacklist, mutually exclusive). Partial-kind states
+can also float their own `theta_offset` / `sample_broadening`. Combined and
+partial-kind states may be mixed in the same run. See
+[skills/create-model/SKILL.md](skills/create-model/SKILL.md) for the full
+example and rules.
 
 To widen or tighten a parameter range, edit the model file's
 `.range(min, max)` calls directly and re-fit. (The old

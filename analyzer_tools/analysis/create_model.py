@@ -89,6 +89,15 @@ def _collect_data(d: Dict[str, Any]) -> List[str]:
     "model_name, source). Flags on the command line override config values.",
 )
 @click.option(
+    "--env",
+    "env_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Extra .env file loaded at the top of the cascade (after the "
+    "process environment, before project and user-global .env). Useful "
+    "when running from a data directory that has no .env of its own.",
+)
+@click.option(
     "--describe",
     "describe",
     type=str,
@@ -121,6 +130,7 @@ def _collect_data(d: Dict[str, Any]) -> List[str]:
 def main(
     source: Optional[str],
     config_path: Optional[Path],
+    env_path: Optional[Path],
     describe: Optional[str],
     data: Tuple[str, ...],
     out: Optional[str],
@@ -185,6 +195,38 @@ def main(
     SOURCE / --describe / --data on the command line.
 
     \b
+    States shape (multi-state co-refinement). Use 'states:' instead of
+    'data:' to group files by sample and control cross-state parameter
+    tying.
+      describe: ...
+      states:
+        - name: run_226642               # partials → one sample, 3 segments
+          data:
+            - Rawdata/REFL_226642_1_226642_partial.txt
+            - Rawdata/REFL_226642_2_226643_partial.txt
+            - Rawdata/REFL_226642_3_226644_partial.txt
+          theta_offset:      {init: 0.0, min: -0.02, max: 0.02}
+          sample_broadening: true        # defaults init=0, 0…0.01
+        - name: run_226652               # combined file → single segment
+          data: [Rawdata/REFL_226652_combined_data_auto.txt]
+          back_reflection: true          # beam enters through substrate
+      shared_parameters:                 # whitelist of tied attrs
+        - Cu.thickness
+        - Cu.material.rho
+        - Ti.thickness
+      # unshared_parameters: [CuOx.thickness]  # blacklist (mutex)
+      out: Models/Cu-D2O-corefine.py
+
+    \b
+    States rules: within one state all files must be the same kind
+    (all-partials-of-one-set OR one-combined) AND they share ONE Sample
+    object, so every structural parameter is automatically tied across
+    the state's files. theta_offset and sample_broadening are only
+    allowed on partial-kind states; back_reflection is a per-state
+    boolean (defaults to the LLM's answer); shared_parameters and
+    unshared_parameters are mutually exclusive.
+
+    \b
     Examples
     --------
     # Mode A: convert an AuRE problem JSON
@@ -209,7 +251,14 @@ def main(
     """
     from analyzer_tools.config_utils import get_config
 
-    models_dir = get_config().get_models_dir()
+    cfg_obj = get_config(str(env_path) if env_path else None)
+    models_dir = cfg_obj.get_models_dir()
+    if env_path and cfg_obj.loaded_env_files:
+        click.echo(
+            "Loaded .env files: "
+            + ", ".join(str(p) for p in cfg_obj.loaded_env_files),
+            err=True,
+        )
 
     # ── Jobs-style config: iterate and dispatch each job ────────────────
     if config_path is not None:
@@ -255,14 +304,63 @@ def main(
     if model_name is None:
         model_name = _pick(cfg, "model_name", "name")
 
+    cfg_dir = config_path.parent.resolve() if config_path is not None else None
+
+    # Multi-state path: "states:" takes precedence over flat "data:".
+    states_raw = cfg.get("states") if isinstance(cfg.get("states"), list) else None
+    if states_raw and data:
+        raise click.BadParameter(
+            "Config has a 'states:' list; do not also pass --data on the CLI."
+        )
+    if states_raw and source:
+        raise click.BadParameter(
+            "Mode A (SOURCE JSON) cannot be combined with a 'states:' list."
+        )
+
     # Resolve relative paths against the config file's directory.
-    if config_path is not None:
-        cfg_dir = config_path.parent.resolve()
+    if cfg_dir is not None:
         if source and not os.path.isabs(source):
             source = str(cfg_dir / source)
         data_list = [
             p if os.path.isabs(p) else str(cfg_dir / p) for p in data_list
         ]
+
+    # Optional DATA_DIR variable emitted in the generated script so users
+    # can redirect the script at a different data copy without editing any
+    # other line. Relative values are resolved against the config file's
+    # directory at generation time; the literal string is what ends up in
+    # the script, so users should set this to the path they want to see
+    # there (an absolute path, or a short relative like "data").
+    data_dir_raw = _pick(cfg, "data_dir")
+    data_dir: Optional[str] = None
+    data_dir_abs: Optional[str] = None
+    if data_dir_raw:
+        data_dir = str(data_dir_raw)
+        if os.path.isabs(data_dir):
+            data_dir_abs = data_dir
+        elif cfg_dir is not None:
+            data_dir_abs = str((cfg_dir / data_dir).resolve())
+        else:
+            data_dir_abs = str(Path(data_dir).resolve())
+
+    if states_raw is not None:
+        if not describe:
+            raise click.BadParameter(
+                "Multi-state mode needs 'describe' / 'description' in the config."
+            )
+        _run_states_mode(
+            describe=describe,
+            states=states_raw,
+            shared=cfg.get("shared_parameters"),
+            unshared=cfg.get("unshared_parameters"),
+            base_dir=cfg_dir,
+            out=out,
+            model_name=model_name,
+            models_dir=models_dir,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
+        return
 
     if source and (describe or data_list):
         raise click.BadParameter(
@@ -285,6 +383,8 @@ def main(
             out=out,
             model_name=model_name,
             models_dir=models_dir,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
         )
 
 
@@ -303,6 +403,7 @@ def _dispatch_job(
     data_list = _collect_data(job)
     model_name = cli_model_name or _pick(job, "model_name", "name")
     out = cli_out or _pick(job, "out")
+    states_raw = job.get("states") if isinstance(job.get("states"), list) else None
 
     # Resolve relative paths against the config file's directory.
     if source and not os.path.isabs(source):
@@ -320,6 +421,46 @@ def _dispatch_job(
         out = os.path.join(root, f"{name}.py")
     elif out is not None and not os.path.isabs(out):
         out = str(cfg_dir / out)
+
+    # Per-job data_dir takes precedence over the top-level one.
+    data_dir_raw = _pick(job, "data_dir")
+    data_dir = str(data_dir_raw) if data_dir_raw else None
+    data_dir_abs: Optional[str] = None
+    if data_dir is not None:
+        if os.path.isabs(data_dir):
+            data_dir_abs = data_dir
+        else:
+            data_dir_abs = str((cfg_dir / data_dir).resolve())
+
+    if states_raw is not None:
+        if source:
+            raise click.BadParameter(
+                f"Job {model_name or '?'}: 'source' (Mode A) cannot be "
+                "combined with a 'states:' list."
+            )
+        if data_list:
+            raise click.BadParameter(
+                f"Job {model_name or '?'}: use either 'data'/'data_files' OR "
+                "'states:', not both."
+            )
+        if not describe:
+            raise click.BadParameter(
+                f"Job {model_name or '?'}: multi-state mode needs "
+                "'describe' / 'description'."
+            )
+        _run_states_mode(
+            describe=describe,
+            states=states_raw,
+            shared=job.get("shared_parameters"),
+            unshared=job.get("unshared_parameters"),
+            base_dir=cfg_dir,
+            out=out,
+            model_name=model_name,
+            models_dir=models_dir,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
+        return
 
     if source and (describe or data_list):
         raise click.BadParameter(
@@ -342,6 +483,8 @@ def _dispatch_job(
             out=out,
             model_name=model_name,
             models_dir=models_dir,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
         )
 
 
@@ -378,6 +521,40 @@ def _run_mode_a(
 # ---------------------------------------------------------------------------
 
 
+def _write_script(out: str, script: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(script)
+    click.echo(f"Wrote analyzer model script: {os.path.abspath(out)}")
+
+
+def _handle_llm_failure(exc: Exception) -> None:
+    """Re-raise as ClickException with guidance when LLM creds are missing."""
+    msg = str(exc)
+    if "API_KEY" in msg or "provider" in msg.lower():
+        from analyzer_tools.config_utils import get_config
+
+        cfg_obj = get_config()
+        loaded = cfg_obj.loaded_env_files
+        loaded_str = (
+            "\n  ".join(str(p) for p in loaded) if loaded else "(none found)"
+        )
+        raise click.ClickException(
+            f"LLM is not configured: {msg}\n\n"
+            "Analyzer loads .env files in this order (highest priority first):\n"
+            "  1. process environment\n"
+            "  2. --env PATH / $ANALYZER_ENV_FILE\n"
+            "  3. nearest .env walking up from the current directory\n"
+            "  4. ~/.config/analyzer/.env  (or $ANALYZER_CONFIG_DIR/.env\n"
+            "     or $XDG_CONFIG_HOME/analyzer/.env)\n\n"
+            f"Files loaded this run:\n  {loaded_str}\n\n"
+            "Add LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (and LLM_BASE_URL if\n"
+            "using a local endpoint) to one of those files, or pass\n"
+            "--env PATH explicitly."
+        ) from exc
+    raise exc
+
+
 def _run_mode_b(
     *,
     describe: str,
@@ -385,6 +562,8 @@ def _run_mode_b(
     out: Optional[str],
     model_name: Optional[str],
     models_dir: str,
+    data_dir: Optional[str] = None,
+    data_dir_abs: Optional[str] = None,
 ) -> None:
     from .model_generator import generate_model_script
 
@@ -393,16 +572,93 @@ def _run_mode_b(
         out = os.path.join(models_dir, f"{default_name}.py")
 
     click.echo(f"Generating model script via LLM for {len(data_files)} data file(s)…", err=True)
-    script = generate_model_script(
-        description=describe,
-        data_files=data_files,
-        model_name=default_name,
+    try:
+        script = generate_model_script(
+            description=describe,
+            data_files=data_files,
+            model_name=default_name,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
+    except ValueError as exc:
+        _handle_llm_failure(exc)
+        return  # unreachable
+
+    _write_script(out, script)
+
+
+# ---------------------------------------------------------------------------
+# Mode B (multi-state) — YAML "states:" → LLM → script
+# ---------------------------------------------------------------------------
+
+
+def _run_states_mode(
+    *,
+    describe: str,
+    states: List[Dict[str, Any]],
+    shared: Any,
+    unshared: Any,
+    base_dir: Optional[Path],
+    out: Optional[str],
+    model_name: Optional[str],
+    models_dir: str,
+    data_dir: Optional[str] = None,
+    data_dir_abs: Optional[str] = None,
+) -> None:
+    from .model_generator import (
+        build_state_specs,
+        generate_model_script_from_states,
     )
 
-    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(script)
-    click.echo(f"Wrote analyzer model script: {os.path.abspath(out)}")
+    default_name = model_name or "model"
+    if out is None:
+        out = os.path.join(models_dir, f"{default_name}.py")
+
+    try:
+        state_specs = build_state_specs(states, base_dir=base_dir)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+    shared_list = _as_str_list("shared_parameters", shared)
+    unshared_list = _as_str_list("unshared_parameters", unshared)
+    if shared_list is not None and unshared_list is not None:
+        raise click.BadParameter(
+            "'shared_parameters' and 'unshared_parameters' are mutually exclusive."
+        )
+
+    click.echo(
+        "Generating multi-state model script via LLM "
+        f"({len(state_specs)} state(s), "
+        f"{sum(len(s.data_files) for s in state_specs)} file(s))…",
+        err=True,
+    )
+    try:
+        script = generate_model_script_from_states(
+            description=describe,
+            states=state_specs,
+            model_name=default_name,
+            shared_parameters=shared_list,
+            unshared_parameters=unshared_list,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
+    except ValueError as exc:
+        _handle_llm_failure(exc)
+        return  # unreachable
+
+    _write_script(out, script)
+
+
+def _as_str_list(field_name: str, raw: Any) -> Optional[List[str]]:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return [str(v) for v in raw]
+    raise click.BadParameter(
+        f"{field_name!r} must be a list of strings, got {type(raw).__name__}."
+    )
 
 
 if __name__ == "__main__":

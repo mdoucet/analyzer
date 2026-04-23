@@ -115,6 +115,13 @@ create-model --describe "2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O" \
 
 # Any mode — options from a YAML/JSON config (flat or AuRE-style `jobs:` list)
 create-model --config model-creation.yaml
+
+# Multi-state co-refinement (states: list in the config) — mix partials and
+# combined files, tie structural parameters across states, let per-state
+# theta_offset / sample_broadening float. See skills/create-model/SKILL.md.
+# Add `data_dir: <path>` to the config to emit a top-level DATA_DIR variable
+# in the generated script — file paths become os.path.join(DATA_DIR, ...)
+# so users can share the script and only edit DATA_DIR.
 ```
 
 ### Model adjustment

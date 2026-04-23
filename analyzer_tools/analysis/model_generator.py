@@ -24,6 +24,7 @@ Cases
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -251,6 +252,227 @@ def model_spec_from_dict(d: Dict[str, Any]) -> ModelSpec:
 
 
 # ---------------------------------------------------------------------------
+# Multi-state specification (YAML "states:" form)
+# ---------------------------------------------------------------------------
+
+
+STATE_COMBINED = "combined"
+STATE_PARTIALS = "partials"
+
+
+@dataclass
+class StateSpec:
+    """One measurement state in a co-refinement.
+
+    A state corresponds to a single physical "state" of the sample. All files
+    within a state see the same sample and any ``theta_offset`` /
+    ``sample_broadening`` nuisance parameters are shared across segments
+    inside the state. Structural parameters are tied *across* states via
+    ``shared_parameters`` / ``unshared_parameters`` on the parent spec.
+    """
+
+    name: str
+    data_files: List[Path]
+    kind: str  # "combined" (1 file) or "partials" (N files, shared set_id)
+    thetas: List[float] = field(default_factory=list)  # for kind=="partials"
+    theta_offset: Optional[Dict[str, float]] = None
+    sample_broadening: Optional[Dict[str, float]] = None
+    # True when the neutron beam enters through the substrate side (e.g.
+    # solid/liquid interface illuminated through a silicon block). The
+    # renderer uses this flag to choose stack ORIENTATION only — it never
+    # touches ``probe.back_reflectivity``, so refl1d's default
+    # interpretation (``sample[0]`` = substrate / beam exit, ``sample[-1]`` =
+    # surface / beam entry) always gives correct physics. ``None`` means
+    # "inherit from the top-level ModelSpec".
+    back_reflection: Optional[bool] = None
+
+
+def _normalise_state_param(
+    raw: Any, *, state_name: str, field_name: str
+) -> Optional[Dict[str, float]]:
+    """Coerce a YAML value into ``{init, min, max}`` or raise."""
+    if raw is None or raw is False:
+        return None
+    if raw is True:
+        # Sensible defaults for the two supported fields.
+        if field_name == "theta_offset":
+            return {"init": 0.0, "min": -0.02, "max": 0.02}
+        if field_name == "sample_broadening":
+            return {"init": 0.0, "min": 0.0, "max": 0.01}
+    if isinstance(raw, dict):
+        init = float(raw.get("init", raw.get("value", 0.0)))
+        lo = raw.get("min")
+        hi = raw.get("max")
+        if lo is None or hi is None:
+            raise ValueError(
+                f"State {state_name!r}: {field_name!r} must include 'min' and 'max'."
+            )
+        return {"init": init, "min": float(lo), "max": float(hi)}
+    raise ValueError(
+        f"State {state_name!r}: invalid {field_name!r} value ({raw!r}); "
+        "expected a mapping with min/max or a boolean."
+    )
+
+
+def build_state_specs(
+    states: List[Dict[str, Any]],
+    *,
+    base_dir: Optional[Path] = None,
+) -> List[StateSpec]:
+    """Validate a YAML ``states:`` list and produce :class:`StateSpec` objects.
+
+    File paths relative to ``base_dir`` are resolved against it.
+    """
+    if not states:
+        raise ValueError("'states' list is empty; need at least one state.")
+
+    specs: List[StateSpec] = []
+    used_names: set[str] = set()
+    for i, entry in enumerate(states):
+        if not isinstance(entry, dict):
+            raise ValueError(f"states[{i}] must be a mapping.")
+
+        name = str(entry.get("name") or f"state{i + 1}")
+        if name in used_names:
+            raise ValueError(f"Duplicate state name: {name!r}.")
+        used_names.add(name)
+
+        raw_files = entry.get("data") or entry.get("data_files") or []
+        if isinstance(raw_files, (str, Path)):
+            raw_files = [raw_files]
+        if not raw_files:
+            raise ValueError(f"State {name!r}: no data files.")
+
+        paths: List[Path] = []
+        for f in raw_files:
+            p = Path(f)
+            if not p.is_absolute() and base_dir is not None:
+                p = base_dir / p
+            paths.append(p)
+
+        kinds = {_classify_file(p)[0] for p in paths}
+        if len(kinds) > 1:
+            raise ValueError(
+                f"State {name!r}: cannot mix combined and partial files "
+                "within a single state."
+            )
+        kind = next(iter(kinds))
+
+        thetas: List[float] = []
+        if kind == "partial":
+            set_ids = {_classify_file(p)[1]["set_id"] for p in paths}
+            if len(set_ids) > 1:
+                raise ValueError(
+                    f"State {name!r}: partial files span multiple set_ids "
+                    f"({sorted(set_ids)}); all must share one set_id."
+                )
+            for p in paths:
+                header = parse_refl_header(p)
+                runs = header.get("runs") or []
+                if not runs:
+                    raise ValueError(
+                        f"State {name!r}: partial file {p.name!r} has no "
+                        "2θ row in its header."
+                    )
+                thetas.append(float(runs[0]["theta"]))
+            state_kind = STATE_PARTIALS
+        else:
+            if len(paths) != 1:
+                raise ValueError(
+                    f"State {name!r}: 'combined' kind expects exactly one "
+                    f"data file; got {len(paths)}."
+                )
+            state_kind = STATE_COMBINED
+
+        theta_off = _normalise_state_param(
+            entry.get("theta_offset"),
+            state_name=name,
+            field_name="theta_offset",
+        )
+        samp_broad = _normalise_state_param(
+            entry.get("sample_broadening"),
+            state_name=name,
+            field_name="sample_broadening",
+        )
+        if (theta_off or samp_broad) and state_kind != STATE_PARTIALS:
+            raise ValueError(
+                f"State {name!r}: theta_offset / sample_broadening are only "
+                "meaningful for multi-segment (partial) data."
+            )
+
+        back_refl_raw = entry.get("back_reflection")
+        if back_refl_raw is None:
+            back_refl: Optional[bool] = None
+        elif isinstance(back_refl_raw, bool):
+            back_refl = back_refl_raw
+        else:
+            raise ValueError(
+                f"State {name!r}: 'back_reflection' must be a boolean, got "
+                f"{back_refl_raw!r}."
+            )
+
+        specs.append(
+            StateSpec(
+                name=name,
+                data_files=paths,
+                kind=state_kind,
+                thetas=thetas,
+                theta_offset=theta_off,
+                sample_broadening=samp_broad,
+                back_reflection=back_refl,
+            )
+        )
+    return specs
+
+
+def default_shared_parameters(spec: ModelSpec) -> List[str]:
+    """Return the default list of dotted paths tied across states.
+
+    Every layer's ``thickness``, ``material.rho``, and ``interface`` are
+    shared by default. The substrate's ``interface`` is also shared. The
+    ambient and per-probe ``intensity`` are intentionally NOT shared.
+    """
+    paths: List[str] = []
+    for layer in spec.layers:
+        paths.append(f"{layer.name}.thickness")
+        paths.append(f"{layer.name}.material.rho")
+        paths.append(f"{layer.name}.interface")
+    paths.append(f"{spec.substrate.name}.interface")
+    return paths
+
+
+def resolve_shared_parameters(
+    spec: ModelSpec,
+    *,
+    shared: Optional[List[str]] = None,
+    unshared: Optional[List[str]] = None,
+) -> List[str]:
+    """Resolve the effective shared-parameter list for multi-state rendering.
+
+    Precedence:
+
+    1. If ``shared`` is given, use it verbatim (explicit whitelist).
+    2. Else start from :func:`default_shared_parameters` and subtract
+       ``unshared`` if given.
+    3. If neither is given, fall back to ``spec.shared_parameters`` (from
+       the LLM) so case-3-style single-file-per-state inputs keep working.
+    """
+    if shared is not None and unshared is not None:
+        raise ValueError(
+            "'shared_parameters' and 'unshared_parameters' are mutually "
+            "exclusive; pick one."
+        )
+    if shared is not None:
+        return list(shared)
+    if unshared is not None:
+        skip = set(unshared)
+        return [p for p in default_shared_parameters(spec) if p not in skip]
+    if spec.shared_parameters:
+        return list(spec.shared_parameters)
+    return default_shared_parameters(spec)
+
+
+# ---------------------------------------------------------------------------
 # LLM prompting
 # ---------------------------------------------------------------------------
 
@@ -298,6 +520,15 @@ Respond with a JSON object of shape:
 Layer ordering: the "layers" list goes from the ambient-adjacent layer
 (first) to the substrate-adjacent layer (last). Do NOT include the ambient
 or the substrate inside "layers".
+
+"back_reflection" describes probe geometry. Set it to true when the neutron
+beam enters through the substrate (e.g. a silicon block illuminated from
+the bulk side so the reflection occurs at the buried solid/liquid
+interface); set it to false for standard front-reflection geometry (beam
+enters through the ambient side). The renderer uses this flag to choose
+stack orientation so that refl1d's default ``probe.back_reflectivity=False``
+always gives correct physics — never set ``back_reflectivity`` on the probe
+yourself.
 """
 
 
@@ -473,21 +704,100 @@ def _materials_lines(spec: ModelSpec, indent: str) -> List[str]:
     return lines
 
 
-def _stack_line(spec: ModelSpec, indent: str) -> str:
-    # refl1d stack order: ambient → substrate (ambient first).
-    parts: List[str] = [
-        f"{spec.ambient.name}(0, {_format_float(spec.ambient.roughness)})"
-    ]
-    for layer in spec.layers:
+def _stack_line(spec: ModelSpec, indent: str, *, back_reflection: bool = False) -> str:
+    """Emit the ``sample = ...`` line.
+
+    refl1d's Experiment treats ``sample[0]`` as the substrate (beam exit) and
+    ``sample[-1]`` as the surface (beam entry). We therefore choose stack
+    orientation from the physical ``back_reflection`` flag so that the probe's
+    default (``back_reflectivity=False``) always gives correct physics — no
+    ``probe.back_reflectivity = True`` is ever emitted.
+
+    * back_reflection=False (beam enters from ambient — standard front
+      reflection): emit substrate first, ambient last. The substrate slab has
+      no parameters; the ambient slab carries its roughness.
+    * back_reflection=True (beam enters through substrate — buried interface):
+      emit ambient first, substrate last. The substrate slab has no parameters;
+      the ambient slab carries its roughness.
+    """
+    if back_reflection:
+        # Buried-interface layout: ambient | ... | substrate.
+        parts: List[str] = [
+            f"{spec.ambient.name}(0, {_format_float(spec.ambient.roughness)})"
+        ]
+        for layer in spec.layers:
+            parts.append(
+                f"{layer.name}({_format_float(layer.thickness)}, "
+                f"{_format_float(layer.roughness)})"
+            )
+        parts.append(spec.substrate.name)
+    else:
+        # Front-reflection layout: substrate | ... | ambient (reversed).
+        parts = [spec.substrate.name]
+        for layer in reversed(spec.layers):
+            parts.append(
+                f"{layer.name}({_format_float(layer.thickness)}, "
+                f"{_format_float(layer.roughness)})"
+            )
         parts.append(
-            f"{layer.name}({_format_float(layer.thickness)}, "
-            f"{_format_float(layer.roughness)})"
+            f"{spec.ambient.name}(0, {_format_float(spec.ambient.roughness)})"
         )
-    parts.append(spec.substrate.name)
     return f"{indent}sample = " + " | ".join(parts)
 
 
-def _range_lines(spec: ModelSpec, indent: str, *, sample_var: str = "sample") -> List[str]:
+def _ambient_interface_line(
+    spec: ModelSpec, indent: str, *, sample_var: str = "sample"
+) -> Optional[str]:
+    """Return the ambient ``.interface.range(...)`` line, or ``None`` if absent.
+
+    Falls back to the substrate's roughness bounds when the ambient's own
+    bounds are not specified — the ambient interface on the beam-exit side
+    (back-reflection mode) should always be floated, and a sensible default
+    is the same range the substrate uses for the beam-entry side.
+    """
+    amb = spec.ambient
+    r_min, r_max = amb.roughness_min, amb.roughness_max
+    if r_min is None or r_max is None:
+        sub = spec.substrate
+        r_min, r_max = sub.roughness_min, sub.roughness_max
+    if r_min is None or r_max is None:
+        return None
+    return (
+        f'{indent}{sample_var}[{amb.name!r}].interface.range('
+        f"{_format_float(r_min)}, {_format_float(r_max)})"
+    )
+
+
+def _substrate_interface_line(
+    spec: ModelSpec, indent: str, *, sample_var: str = "sample"
+) -> Optional[str]:
+    """Return the substrate ``.interface.range(...)`` line, or ``None`` if absent.
+
+    Falls back to the ambient's roughness bounds when the substrate's own
+    bounds are not specified.
+    """
+    sub = spec.substrate
+    r_min, r_max = sub.roughness_min, sub.roughness_max
+    if r_min is None or r_max is None:
+        amb = spec.ambient
+        r_min, r_max = amb.roughness_min, amb.roughness_max
+    if r_min is None or r_max is None:
+        return None
+    return (
+        f'{indent}{sample_var}[{sub.name!r}].interface.range('
+        f"{_format_float(r_min)}, "
+        f"{_format_float(r_max)})"
+    )
+
+
+def _range_lines(
+    spec: ModelSpec,
+    indent: str,
+    *,
+    sample_var: str = "sample",
+    include_ambient_interface: bool = True,
+    include_substrate_interface: bool = True,
+) -> List[str]:
     out: List[str] = []
     amb = spec.ambient
     if amb.sld_min is not None and amb.sld_max is not None:
@@ -495,11 +805,10 @@ def _range_lines(spec: ModelSpec, indent: str, *, sample_var: str = "sample") ->
             f'{indent}{sample_var}[{amb.name!r}].material.rho.range('
             f"{_format_float(amb.sld_min)}, {_format_float(amb.sld_max)})"
         )
-    if amb.roughness_min is not None and amb.roughness_max is not None:
-        out.append(
-            f'{indent}{sample_var}[{amb.name!r}].interface.range('
-            f"{_format_float(amb.roughness_min)}, {_format_float(amb.roughness_max)})"
-        )
+    if include_ambient_interface:
+        line = _ambient_interface_line(spec, indent, sample_var=sample_var)
+        if line is not None:
+            out.append(line)
     for layer in spec.layers:
         if layer.thickness_min is not None and layer.thickness_max is not None:
             out.append(
@@ -519,13 +828,10 @@ def _range_lines(spec: ModelSpec, indent: str, *, sample_var: str = "sample") ->
                 f"{_format_float(layer.roughness_min)}, "
                 f"{_format_float(layer.roughness_max)})"
             )
-    sub = spec.substrate
-    if sub.roughness_min is not None and sub.roughness_max is not None:
-        out.append(
-            f'{indent}{sample_var}[{sub.name!r}].interface.range('
-            f"{_format_float(sub.roughness_min)}, "
-            f"{_format_float(sub.roughness_max)})"
-        )
+    if include_substrate_interface:
+        line = _substrate_interface_line(spec, indent, sample_var=sample_var)
+        if line is not None:
+            out.append(line)
     return out
 
 
@@ -539,14 +845,67 @@ from refl1d.names import *
 """
 
 
+def _data_dir_lines(data_dir: Optional[Path | str]) -> List[str]:
+    """Emit the ``DATA_DIR = ...`` top-of-script line when configured.
+
+    Users can edit this single variable to point the script at a new data
+    directory without touching any other line. The value is rendered with
+    ``repr(str(data_dir))`` so forward slashes / backslashes / absolute vs
+    relative paths are preserved verbatim.
+    """
+    if data_dir is None:
+        return []
+    return [
+        "",
+        "# ── Data location (edit to point at your local data copy) ───",
+        f"DATA_DIR = {str(data_dir)!r}",
+        "",
+    ]
+
+
+def _data_file_ref(
+    path: Path | str,
+    data_dir: Optional[Path | str],
+    data_dir_abs: Optional[Path | str] = None,
+) -> str:
+    """Return the source-code expression used in place of a raw path string.
+
+    * ``data_dir`` unset → return ``repr(str(path))`` (current behaviour).
+    * ``data_dir`` set and ``path`` lives under ``data_dir_abs`` (or
+      ``data_dir`` when no anchor is provided) →
+      ``os.path.join(DATA_DIR, "<relpath>")``.
+    * ``data_dir`` set but ``path`` is elsewhere → ``repr(str(path))`` so the
+      script still resolves, at the cost of that one file being non-portable.
+
+    ``data_dir_abs`` is used only for relpath math; the rendered DATA_DIR
+    string keeps the literal ``data_dir`` value (so a short relative like
+    ``"data"`` stays short in the generated script).
+    """
+    if data_dir is None:
+        return repr(str(path))
+    anchor = str(data_dir_abs) if data_dir_abs is not None else str(data_dir)
+    try:
+        rel = os.path.relpath(str(path), anchor)
+    except ValueError:
+        return repr(str(path))
+    if rel.startswith(".."):
+        return repr(str(path))
+    return f"os.path.join(DATA_DIR, {rel!r})"
+
+
 def render_case1_script(
     spec: ModelSpec,
     data_file: Path | str,
     *,
     model_name: str = "model",
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
 ) -> str:
     """Render a case-1 (single combined file, QProbe) script."""
-    lines: List[str] = [_HEADER.format(model_name=model_name), ""]
+    lines: List[str] = [_HEADER.format(model_name=model_name)]
+    lines.extend(_data_dir_lines(data_dir))
+    if data_dir is None:
+        lines.append("")
     lines.append("def create_fit_experiment(q, dq, data, errors):")
     lines.append('    """Build an analyzer-convention refl1d Experiment.')
     lines.append("")
@@ -570,17 +929,22 @@ def render_case1_script(
     lines.append("")
     lines.extend(_materials_lines(spec, "    "))
     lines.append("")
-    lines.append(_stack_line(spec, "    "))
+    lines.append(_stack_line(spec, "    ", back_reflection=spec.back_reflection))
     lines.append("")
     lines.append("    experiment = Experiment(probe=probe, sample=sample)")
     lines.append("")
     lines.append("    # Parameter ranges")
-    lines.extend(_range_lines(spec, "    "))
+    lines.extend(_range_lines(
+        spec,
+        "    ",
+        include_ambient_interface=spec.back_reflection,
+        include_substrate_interface=not spec.back_reflection,
+    ))
     lines.append("")
     lines.append("    return experiment")
     lines.append("")
     lines.append("")
-    lines.append(f"data_file = {str(data_file)!r}")
+    lines.append(f"data_file = {_data_file_ref(data_file, data_dir, data_dir_abs)}")
     lines.append("")
     lines.append("_refl = np.loadtxt(data_file).T")
     lines.append(
@@ -598,6 +962,8 @@ def render_case2_script(
     thetas: Sequence[float],
     *,
     model_name: str = "model",
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
 ) -> str:
     """Render a case-2 (multi-segment partials, make_probe) script."""
     if len(data_files) != len(thetas):
@@ -605,7 +971,7 @@ def render_case2_script(
 
     lines: List[str] = [_HEADER.format(model_name=model_name)]
     lines.append("from refl1d.probe import make_probe")
-    lines.append("")
+    lines.extend(_data_dir_lines(data_dir))
     lines.append("")
     lines.append("def create_probe(data_file, theta):")
     lines.append('    """Build an angle-based probe from one REF_L partial file."""')
@@ -634,16 +1000,21 @@ def render_case2_script(
     lines.append('    """Build the shared sample stack (one stack, all probes)."""')
     lines.extend(_materials_lines(spec, "    "))
     lines.append("")
-    lines.append(_stack_line(spec, "    "))
+    lines.append(_stack_line(spec, "    ", back_reflection=spec.back_reflection))
     lines.append("")
     lines.append("    # Parameter ranges")
-    lines.extend(_range_lines(spec, "    "))
+    lines.extend(_range_lines(
+        spec,
+        "    ",
+        include_ambient_interface=spec.back_reflection,
+        include_substrate_interface=not spec.back_reflection,
+    ))
     lines.append("")
     lines.append("    return sample")
     lines.append("")
     lines.append("")
     for i, path in enumerate(data_files, start=1):
-        lines.append(f"data_file{i} = {str(path)!r}")
+        lines.append(f"data_file{i} = {_data_file_ref(path, data_dir, data_dir_abs)}")
     lines.append("")
     lines.append("sample = create_sample()")
     lines.append("")
@@ -702,12 +1073,17 @@ def render_case3_script(
     data_files: Sequence[Path | str],
     *,
     model_name: str = "model",
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
 ) -> str:
     """Render a case-3 (multiple combined files, co-refined) script."""
     if len(data_files) < 2:
         raise ValueError("case 3 requires at least two data files")
 
-    lines: List[str] = [_HEADER.format(model_name=model_name), ""]
+    lines: List[str] = [_HEADER.format(model_name=model_name)]
+    lines.extend(_data_dir_lines(data_dir))
+    if data_dir is None:
+        lines.append("")
     lines.append("def create_fit_experiment(q, dq, data, errors):")
     lines.append('    """Build a refl1d Experiment with an INDEPENDENT sample copy.')
     lines.append("")
@@ -728,18 +1104,23 @@ def render_case3_script(
     lines.append("")
     lines.extend(_materials_lines(spec, "    "))
     lines.append("")
-    lines.append(_stack_line(spec, "    "))
+    lines.append(_stack_line(spec, "    ", back_reflection=spec.back_reflection))
     lines.append("")
     lines.append("    experiment = Experiment(probe=probe, sample=sample)")
     lines.append("")
     lines.append("    # Parameter ranges")
-    lines.extend(_range_lines(spec, "    "))
+    lines.extend(_range_lines(
+        spec,
+        "    ",
+        include_ambient_interface=spec.back_reflection,
+        include_substrate_interface=not spec.back_reflection,
+    ))
     lines.append("")
     lines.append("    return experiment")
     lines.append("")
     lines.append("")
     for i, path in enumerate(data_files, start=1):
-        lines.append(f"data_file{i} = {str(path)!r}")
+        lines.append(f"data_file{i} = {_data_file_ref(path, data_dir, data_dir_abs)}")
     lines.append("")
     experiment_names: List[str] = []
     for i in range(1, len(data_files) + 1):
@@ -772,16 +1153,355 @@ def render_script(
     *,
     thetas: Optional[Sequence[float]] = None,
     model_name: str = "model",
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
 ) -> str:
     if case == CASE_1:
-        return render_case1_script(spec, data_files[0], model_name=model_name)
+        return render_case1_script(
+            spec,
+            data_files[0],
+            model_name=model_name,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
     if case == CASE_2:
         if thetas is None:
             raise ValueError("case 2 rendering requires thetas")
-        return render_case2_script(spec, data_files, thetas, model_name=model_name)
+        return render_case2_script(
+            spec,
+            data_files,
+            thetas,
+            model_name=model_name,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
     if case == CASE_3:
-        return render_case3_script(spec, data_files, model_name=model_name)
+        return render_case3_script(
+            spec,
+            data_files,
+            model_name=model_name,
+            data_dir=data_dir,
+            data_dir_abs=data_dir_abs,
+        )
     raise ValueError(f"Unknown case {case!r}")
+
+
+# ---------------------------------------------------------------------------
+# Multi-state rendering (YAML "states:" form)
+# ---------------------------------------------------------------------------
+
+
+def _state_var(state_name: str) -> str:
+    """Safe Python identifier derived from a state name."""
+    base = "".join(c if c.isalnum() or c == "_" else "_" for c in state_name)
+    if not base or not (base[0].isalpha() or base[0] == "_"):
+        base = f"state_{base}"
+    return base
+
+
+def build_states_llm_prompt(
+    description: str,
+    states: Sequence[StateSpec],
+) -> List[Dict[str, str]]:
+    """Build the LLM prompt for the multi-state path."""
+    blocks: List[str] = []
+    for s in states:
+        file_lines: List[str] = []
+        for p in s.data_files:
+            header = parse_refl_header(p)
+            runs = header.get("runs") or []
+            run_str = ", ".join(f"2θ={r['two_theta']:.3f}°" for r in runs) or "—"
+            file_lines.append(f"    * {p.name}  [{run_str}]")
+        blocks.append(
+            f"- State {s.name!r} ({s.kind}, {len(s.data_files)} file(s)):\n"
+            + "\n".join(file_lines)
+        )
+    states_block = "\n".join(blocks)
+
+    shared_instr = (
+        "You may leave 'shared_parameters' empty — the caller will fill it in "
+        "from YAML. If the description makes it obvious which layers change "
+        "between states, you MAY suggest a default list."
+    )
+
+    user = (
+        f"Sample description (from the user):\n{description.strip()}\n\n"
+        f"This is a MULTI-STATE co-refinement of {len(states)} state(s):\n"
+        f"{states_block}\n\n"
+        "Produce ONE shared layer stack that describes the sample. Each state "
+        "gets its own probe(s); structural parameters will be tied across "
+        "states by the caller.\n\n"
+        f"{shared_instr}\n\n"
+        f"{_JSON_SCHEMA_DESCRIPTION}"
+    )
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+
+
+def _states_sample_fn(spec: ModelSpec) -> List[str]:
+    """Emit a ``def create_sample(back_reflection):`` helper that returns a stack.
+
+    Each state in a multi-state co-refinement calls this with its own
+    ``back_reflection`` flag. The flag controls layer ORDER only — the
+    probe's ``back_reflectivity`` is never touched, so refl1d's default
+    interpretation (``sample[0]`` = substrate / beam exit, ``sample[-1]`` =
+    surface / beam entry) applies uniformly.
+    """
+    lines: List[str] = ["def create_sample(back_reflection=False):"]
+    lines.append(
+        '    """Build a fresh sample stack for one state.'
+    )
+    lines.append("")
+    lines.append(
+        "    Every probe in a given state is constructed with this stack,"
+    )
+    lines.append(
+        "    so all structural parameters (thickness / SLD / interface) are"
+    )
+    lines.append(
+        "    automatically tied across that state's segments via Python"
+    )
+    lines.append(
+        "    object identity. Each state gets its OWN call, so structural"
+    )
+    lines.append(
+        "    parameters are independent across states unless explicitly"
+    )
+    lines.append('    tied below with ``sample_B[\'X\'].attr = sample_A[\'X\'].attr``.')
+    lines.append("")
+    lines.append(
+        "    ``back_reflection`` selects stack orientation so the default"
+    )
+    lines.append(
+        "    ``probe.back_reflectivity=False`` gives correct physics in both"
+    )
+    lines.append("    buried-interface and standard front-reflection geometries.")
+    lines.append('    """')
+    lines.extend(_materials_lines(spec, "    "))
+    lines.append("")
+    amb_iface = _ambient_interface_line(spec, "        ")
+    sub_iface = _substrate_interface_line(spec, "        ")
+    lines.append("    if back_reflection:")
+    lines.append(_stack_line(spec, "        ", back_reflection=True))
+    if amb_iface is not None:
+        lines.append(amb_iface)
+    lines.append("    else:")
+    lines.append(_stack_line(spec, "        ", back_reflection=False))
+    if sub_iface is not None:
+        lines.append(sub_iface)
+    lines.append("")
+    lines.append("    # Parameter ranges")
+    lines.extend(_range_lines(
+        spec,
+        "    ",
+        include_ambient_interface=False,
+        include_substrate_interface=False,
+    ))
+    lines.append("")
+    lines.append("    return sample")
+    return lines
+
+
+def _states_probe_helpers(spec: ModelSpec, need_make_probe: bool) -> List[str]:
+    """Emit probe constructor helpers (QProbe / make_probe wrappers)."""
+    lines: List[str] = []
+    # Combined: QProbe helper.
+    lines.append("def create_q_probe(data_file):")
+    lines.append('    """Angle-independent probe for a combined REF_L file."""')
+    lines.append("    q, data, errors, dq = np.loadtxt(data_file).T")
+    lines.append("    dq = dq / 2.355  # FWHM → 1-sigma")
+    lines.append("    probe = QProbe(q, dq, data=(data, errors))")
+    lines.append(
+        f"    probe.intensity = Parameter(value={_format_float(spec.intensity['value'])}, "
+        f'name="intensity")'
+    )
+    lines.append(
+        f"    probe.intensity.range({_format_float(spec.intensity['min'])}, "
+        f"{_format_float(spec.intensity['max'])})"
+    )
+    lines.append("    return probe")
+    lines.append("")
+    if need_make_probe:
+        lines.append("def create_angle_probe(data_file, theta):")
+        lines.append('    """Angle-based probe from one REF_L partial file."""')
+        lines.append("    q, data, errors, dq = np.loadtxt(data_file).T")
+        lines.append("    wl = 4 * np.pi * np.sin(np.pi / 180 * theta) / q")
+        lines.append("    dT = dq / q * np.tan(np.pi / 180 * theta) * 180 / np.pi")
+        lines.append("    dL = 0 * q  # wavelength resolution placeholder")
+        lines.append("    probe = make_probe(")
+        lines.append("        T=theta, dT=dT, L=wl, dL=dL,")
+        lines.append("        data=(data, errors),")
+        lines.append('        radiation="neutron",')
+        lines.append('        resolution="uniform",')
+        lines.append("    )")
+        lines.append(
+            f"    probe.intensity = Parameter(value={_format_float(spec.intensity['value'])}, "
+            f'name="intensity")'
+        )
+        lines.append(
+            f"    probe.intensity.range({_format_float(spec.intensity['min'])}, "
+            f"{_format_float(spec.intensity['max'])})"
+        )
+        lines.append("    return probe")
+        lines.append("")
+    return lines
+
+
+def _shared_assignment(first_sample: str, other_sample: str, path: str) -> Optional[str]:
+    m = _SHARED_PATH_RE.match(path)
+    if not m:
+        return None
+    layer = m.group("layer")
+    attr = m.group("attr")
+    return (
+        f'{other_sample}[{layer!r}].{attr} = {first_sample}[{layer!r}].{attr}'
+    )
+
+
+def render_states_script(
+    spec: ModelSpec,
+    states: Sequence[StateSpec],
+    *,
+    model_name: str = "model",
+    shared_parameters: Optional[Sequence[str]] = None,
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
+) -> str:
+    """Render a multi-state co-refinement script.
+
+    Each state yields one Experiment per data file (all experiments in a
+    partial-kind state share the state's sample, theta_offset and
+    sample_broadening). Structural parameters listed in
+    ``shared_parameters`` are tied across states.
+    """
+    if not states:
+        raise ValueError("At least one state is required.")
+
+    need_make_probe = any(s.kind == STATE_PARTIALS for s in states)
+
+    lines: List[str] = [_HEADER.format(model_name=model_name)]
+    if need_make_probe:
+        lines.append("from refl1d.probe import make_probe")
+    lines.extend(_data_dir_lines(data_dir))
+    lines.append("")
+    lines.extend(_states_sample_fn(spec))
+    lines.append("")
+    lines.append("")
+    lines.extend(_states_probe_helpers(spec, need_make_probe))
+    lines.append("")
+
+    experiment_names: List[str] = []
+    state_samples: List[str] = []  # name of the sample variable per state
+
+    for s in states:
+        svar = _state_var(s.name)
+        sample_var = f"sample_{svar}"
+        state_samples.append(sample_var)
+        lines.append(f"# ── State: {s.name} ({s.kind}) ─────────────────────────")
+        lines.append(
+            f"# All probes in this state share {sample_var}, so every structural"
+        )
+        lines.append(
+            "# parameter (thickness, SLD, roughness) is tied across this state's"
+        )
+        lines.append("# segments by Python object identity — no explicit ties needed.")
+        back_refl = (
+            s.back_reflection
+            if s.back_reflection is not None
+            else bool(spec.back_reflection)
+        )
+        lines.append(f"{sample_var} = create_sample(back_reflection={back_refl!r})")
+
+        # Nuisance parameters shared across segments within this state.
+        theta_var: Optional[str] = None
+        sb_var: Optional[str] = None
+        if s.theta_offset is not None:
+            theta_var = f"theta_offset_{svar}"
+            lines.append(
+                f'{theta_var} = Parameter(value={_format_float(s.theta_offset["init"])}, '
+                f'name="theta_offset_{svar}")'
+            )
+            lines.append(
+                f"{theta_var}.range({_format_float(s.theta_offset['min'])}, "
+                f"{_format_float(s.theta_offset['max'])})"
+            )
+        if s.sample_broadening is not None:
+            sb_var = f"sample_broadening_{svar}"
+            lines.append(
+                f'{sb_var} = Parameter(value={_format_float(s.sample_broadening["init"])}, '
+                f'name="sample_broadening_{svar}")'
+            )
+            lines.append(
+                f"{sb_var}.range({_format_float(s.sample_broadening['min'])}, "
+                f"{_format_float(s.sample_broadening['max'])})"
+            )
+
+        for i, data_file in enumerate(s.data_files, start=1):
+            pvar = f"probe_{svar}_{i}" if s.kind == STATE_PARTIALS else f"probe_{svar}"
+            evar = f"experiment_{svar}_{i}" if s.kind == STATE_PARTIALS else f"experiment_{svar}"
+            file_ref = _data_file_ref(data_file, data_dir, data_dir_abs)
+            if s.kind == STATE_COMBINED:
+                lines.append(f"{pvar} = create_q_probe({file_ref})")
+            else:
+                theta = s.thetas[i - 1]
+                lines.append(
+                    f"{pvar} = create_angle_probe({file_ref}, "
+                    f"theta={_format_float(theta)})"
+                )
+            if theta_var is not None:
+                lines.append(f"{pvar}.theta_offset = {theta_var}")
+            if sb_var is not None:
+                lines.append(f"{pvar}.sample_broadening = {sb_var}")
+            lines.append(f"{evar} = Experiment(probe={pvar}, sample={sample_var})")
+            experiment_names.append(evar)
+        lines.append("")
+
+    # Shared-parameter constraints across states.
+    effective_shared = list(shared_parameters) if shared_parameters else []
+    if len(states) > 1 and effective_shared:
+        lines.append("# ── Shared structural parameters across states ──")
+        first = state_samples[0]
+        for other in state_samples[1:]:
+            for path in effective_shared:
+                assignment = _shared_assignment(first, other, path)
+                if assignment is not None:
+                    lines.append(assignment)
+        lines.append("")
+
+    lines.append("problem = FitProblem([" + ", ".join(experiment_names) + "])")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate_model_script_from_states(
+    description: str,
+    states: Sequence[StateSpec],
+    *,
+    model_name: str = "model",
+    shared_parameters: Optional[List[str]] = None,
+    unshared_parameters: Optional[List[str]] = None,
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
+    llm: Any = None,
+) -> str:
+    """High-level entry point for the multi-state (YAML ``states:``) path."""
+    if not states:
+        raise ValueError("At least one state is required.")
+    messages = build_states_llm_prompt(description, states)
+    spec = call_llm_for_model_spec(messages, llm=llm)
+    effective = resolve_shared_parameters(
+        spec, shared=shared_parameters, unshared=unshared_parameters
+    )
+    return render_states_script(
+        spec,
+        states,
+        model_name=model_name,
+        shared_parameters=effective,
+        data_dir=data_dir,
+        data_dir_abs=data_dir_abs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -794,6 +1514,8 @@ def generate_model_script(
     data_files: Sequence[Path | str],
     *,
     model_name: str = "model",
+    data_dir: Optional[Path | str] = None,
+    data_dir_abs: Optional[Path | str] = None,
     llm: Any = None,
 ) -> str:
     """High-level entry point: files → header parsing → LLM → script."""
@@ -816,4 +1538,12 @@ def generate_model_script(
                     "one of the files has an empty header table."
                 )
             thetas.append(float(runs[0]["theta"]))
-    return render_script(case, spec, paths, thetas=thetas, model_name=model_name)
+    return render_script(
+        case,
+        spec,
+        paths,
+        thetas=thetas,
+        model_name=model_name,
+        data_dir=data_dir,
+        data_dir_abs=data_dir_abs,
+    )
