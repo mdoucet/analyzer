@@ -192,7 +192,7 @@ class ModelSpec:
     substrate: LayerSpec
     layers: List[LayerSpec]  # ambient-adjacent → substrate-adjacent (top-to-bottom)
     intensity: Dict[str, float] = field(
-        default_factory=lambda: {"value": 1.0, "min": 0.95, "max": 1.05}
+        default_factory=lambda: {"value": 1.0, "min": 0.9, "max": 1.1}
     )
     back_reflection: bool = False
     # Case-3 only: list of per-layer attribute paths to tie across experiments,
@@ -237,8 +237,8 @@ def model_spec_from_dict(d: Dict[str, Any]) -> ModelSpec:
     intensity = d.get("intensity") or {}
     intensity_out = {
         "value": float(intensity.get("value", 1.0)),
-        "min": float(intensity.get("min", 0.95)),
-        "max": float(intensity.get("max", 1.05)),
+        "min": float(intensity.get("min", 0.9)),
+        "max": float(intensity.get("max", 1.1)),
     }
 
     return ModelSpec(
@@ -845,20 +845,38 @@ from refl1d.names import *
 """
 
 
+def _portable_path_expr(path: str) -> str:
+    """Return a Python expression that evaluates to ``path`` at runtime.
+
+    Absolute paths under the user's home directory are rewritten as
+    ``os.path.join(os.path.expanduser('~'), '<rest>')`` so the generated
+    script can be shared between users whose home directories differ. All
+    other paths are rendered verbatim with ``repr``.
+    """
+    home = os.path.expanduser("~")
+    if home and home != "~" and path == home:
+        return "os.path.expanduser('~')"
+    if home and home != "~" and path.startswith(home + os.sep):
+        rest = path[len(home) + 1 :]
+        return f"os.path.join(os.path.expanduser('~'), {rest!r})"
+    return repr(path)
+
+
 def _data_dir_lines(data_dir: Optional[Path | str]) -> List[str]:
     """Emit the ``DATA_DIR = ...`` top-of-script line when configured.
 
     Users can edit this single variable to point the script at a new data
-    directory without touching any other line. The value is rendered with
-    ``repr(str(data_dir))`` so forward slashes / backslashes / absolute vs
-    relative paths are preserved verbatim.
+    directory without touching any other line. Home-relative absolute paths
+    are emitted as ``os.path.join(os.path.expanduser('~'), '<rest>')`` so
+    the script remains portable between users; all other values are
+    rendered verbatim.
     """
     if data_dir is None:
         return []
     return [
         "",
         "# ── Data location (edit to point at your local data copy) ───",
-        f"DATA_DIR = {str(data_dir)!r}",
+        f"DATA_DIR = {_portable_path_expr(str(data_dir))}",
         "",
     ]
 
@@ -870,26 +888,28 @@ def _data_file_ref(
 ) -> str:
     """Return the source-code expression used in place of a raw path string.
 
-    * ``data_dir`` unset → return ``repr(str(path))`` (current behaviour).
+    * ``data_dir`` unset → a portable literal (home-relative paths use
+      ``os.path.expanduser('~')``).
     * ``data_dir`` set and ``path`` lives under ``data_dir_abs`` (or
       ``data_dir`` when no anchor is provided) →
       ``os.path.join(DATA_DIR, "<relpath>")``.
-    * ``data_dir`` set but ``path`` is elsewhere → ``repr(str(path))`` so the
-      script still resolves, at the cost of that one file being non-portable.
+    * ``data_dir`` set but ``path`` is elsewhere → a portable literal so the
+      script still resolves, at the cost of that one file being
+      non-portable beyond ``$HOME`` substitution.
 
     ``data_dir_abs`` is used only for relpath math; the rendered DATA_DIR
     string keeps the literal ``data_dir`` value (so a short relative like
     ``"data"`` stays short in the generated script).
     """
     if data_dir is None:
-        return repr(str(path))
+        return _portable_path_expr(str(path))
     anchor = str(data_dir_abs) if data_dir_abs is not None else str(data_dir)
     try:
         rel = os.path.relpath(str(path), anchor)
     except ValueError:
-        return repr(str(path))
+        return _portable_path_expr(str(path))
     if rel.startswith(".."):
-        return repr(str(path))
+        return _portable_path_expr(str(path))
     return f"os.path.join(DATA_DIR, {rel!r})"
 
 
