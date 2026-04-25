@@ -90,14 +90,78 @@ def _build_command(tool: str, args: List[str]) -> List[str]:
     return [sys.executable, "-m", module, *args]
 
 
+def _expand_for_each(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Expand a job containing a ``for_each`` key into a list of jobs.
+
+    ``for_each`` is a mapping ``{flag: [value1, value2, ...]}``.  The job
+    is replicated once per value, with ``[flag, value]`` appended to its
+    ``args``.  If the job has no explicit ``name``, one is auto-generated
+    from the tool name and the value's basename.
+
+    A shorthand is also accepted: ``files: [a.h5, b.h5]`` is treated as
+    ``for_each: {--event-file: [a.h5, b.h5]}``.
+
+    Jobs without ``for_each``/``files`` are returned unchanged in a
+    single-element list.
+    """
+    for_each = job.get("for_each")
+    if for_each is None and "files" in job:
+        for_each = {"--event-file": job["files"]}
+
+    if for_each is None:
+        return [job]
+
+    if not isinstance(for_each, dict) or len(for_each) != 1:
+        raise click.ClickException(
+            "'for_each' must be a mapping with exactly one flag, "
+            "e.g. {--event-file: [a.h5, b.h5]}"
+        )
+    [(flag, values)] = for_each.items()
+    if not isinstance(values, list) or not values:
+        raise click.ClickException(
+            f"'for_each.{flag}' must be a non-empty list of values."
+        )
+
+    base = {k: v for k, v in job.items() if k not in ("for_each", "files")}
+    base_args = list(base.get("args", []))
+    base_name = base.get("name")
+    tool = base.get("tool", "job")
+
+    expanded: List[Dict[str, Any]] = []
+    for value in values:
+        new_job = dict(base)
+        new_job["args"] = base_args + [flag, str(value)]
+        if base_name:
+            stem = os.path.splitext(os.path.basename(str(value)))[0]
+            stem = stem.replace(".nxs", "")
+            new_job["name"] = f"{base_name}_{stem}"
+        else:
+            stem = os.path.splitext(os.path.basename(str(value)))[0]
+            stem = stem.replace(".nxs", "")
+            new_job["name"] = f"{tool}_{stem}"
+        expanded.append(new_job)
+    return expanded
+
+
 def load_manifest(path: str) -> Dict[str, Any]:
-    """Parse a YAML manifest and return its contents."""
+    """Parse a YAML manifest and return its contents.
+
+    Any jobs containing ``for_each`` (or the ``files`` shorthand) are
+    expanded in place into one job per value.
+    """
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise click.ClickException("Manifest must be a YAML mapping at the top level.")
     if "jobs" not in data or not isinstance(data["jobs"], list):
         raise click.ClickException("Manifest must contain a 'jobs' list.")
+
+    expanded_jobs: List[Dict[str, Any]] = []
+    for job in data["jobs"]:
+        if not isinstance(job, dict):
+            raise click.ClickException("Each job must be a YAML mapping.")
+        expanded_jobs.extend(_expand_for_each(job))
+    data["jobs"] = expanded_jobs
     return data
 
 

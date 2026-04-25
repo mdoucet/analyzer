@@ -181,6 +181,20 @@ iceberg-packager <DATA_DIR> --output <OUTPUT_DIR>
 analyzer-batch <MANIFEST_FILE>
 ```
 
+When many jobs use the same tool and options, use the `files:` shorthand
+(or the general `for_each:` mapping) to expand one entry into many:
+
+```yaml
+data_location: ~/data/mar26
+output_dir: ~/data/reduced/mar26/sample5
+jobs:
+  - tool: simple-reduction
+    args: [--template, template_down.xml]
+    files:                   # one job per file, --event-file <file> appended
+      - REF_L_226642.nxs.h5
+      - REF_L_226643.nxs.h5
+```
+
 ### LLM health check
 
 #### `check-llm` — Verify the AuRE/LLM chain is ready
