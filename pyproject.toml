@@ -9,7 +9,7 @@ description = "Neutron reflectometry data analysis tools"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    {name = "Neutron Reflectometry Team"},
+    {name = "Mat Doucet"},
 ]
 keywords = ["neutron", "reflectometry", "analysis", "fitting"]
 classifiers = [
@@ -53,8 +53,8 @@ reduction = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/analyzer"
-Repository = "https://github.com/your-org/analyzer"
+Homepage = "https://github.com/mdoucet/analyzer"
+Repository = "https://github.com/mdoucet/analyzer"
 
 [project.scripts]
 analyzer-tools = "analyzer_tools.cli:main"
