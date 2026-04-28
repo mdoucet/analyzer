@@ -11,28 +11,57 @@ because ``override=False`` is used for every call):
 2. **Explicit path** — passed as ``get_config(dotenv_path=...)`` or via
    the ``ANALYZER_ENV_FILE`` environment variable.
 3. **Project ``.env``** — the nearest ``.env`` found by walking upward
-   from the current working directory (``dotenv.find_dotenv``).
+   from the current working directory (``dotenv.find_dotenv``). The
+   walk-up means a single ``.env`` placed at a *repo root* applies to
+   every sample sub-folder underneath it.
 4. **User-global ``.env``** — ``$ANALYZER_CONFIG_DIR/.env`` if set,
    else ``$XDG_CONFIG_HOME/analyzer/.env`` if set,
    else ``~/.config/analyzer/.env``.
 
-Typical layout:
+Path resolution
+---------------
+The pipeline needs five role-based directories: combined data, partial
+data, models, results, and reports. Each role X is resolved as:
 
-- Put LLM secrets (``LLM_PROVIDER``, ``LLM_API_KEY``, ``LLM_MODEL``,
-  ``LLM_BASE_URL``) in the **user-global** file once.
-- Put per-sample overrides (``ANALYZER_MODELS_DIR``,
-  ``ANALYZER_RESULTS_DIR`` …) in a **project** ``.env`` next to your data.
+1. If absolute ``ANALYZER_X_DIR`` is set, use it verbatim.
+2. Else use ``<project_dir>/<subdir>``, where ``<subdir>`` is
+   ``ANALYZER_X_SUBDIR`` if set, else the lowercase default
+   (``rawdata`` / ``models`` / ``results`` / ``reports``).
+3. ``<project_dir>`` is ``$ANALYZER_PROJECT_DIR`` if set, else
+   ``Path.cwd()``. The project root is **never** auto-derived from the
+   loaded ``.env`` location, so a repo-level ``.env`` can define
+   sub-folder *names* without forcing the repo to be the project root.
+
+Special cases
+-------------
+- ``get_partial_data_dir()`` falls back to ``get_combined_data_dir()``
+  when neither ``ANALYZER_PARTIAL_DATA_DIR`` nor
+  ``ANALYZER_PARTIAL_SUBDIR`` is set. Most reduction setups put both
+  kinds of files in one folder.
 
 Variable names
 --------------
-ANALYZER_RESULTS_DIR          Path for fit output directories       (default: results)
-ANALYZER_COMBINED_DATA_DIR    Path to combined reflectivity files   (default: data/combined)
-ANALYZER_PARTIAL_DATA_DIR     Path to partial reflectivity files    (default: data/partial)
-ANALYZER_REPORTS_DIR          Path for generated reports            (default: reports)
-ANALYZER_COMBINED_DATA_TEMPLATE  File-name template                 (default: REFL_{set_id}_combined_data_auto.txt)
-ANALYZER_MODELS_DIR           Path to model Python files            (default: models)
-ANALYZER_ENV_FILE             Extra ``.env`` path loaded before project/global
-ANALYZER_CONFIG_DIR           Override directory for the user-global ``.env``
+Project anchor:
+    ANALYZER_PROJECT_DIR        Absolute project root (default: cwd)
+
+Sub-directory names (used relative to PROJECT_DIR):
+    ANALYZER_DATA_SUBDIR        Combined data sub-folder    (default: rawdata)
+    ANALYZER_PARTIAL_SUBDIR     Partial data sub-folder     (default: → DATA_SUBDIR)
+    ANALYZER_MODELS_SUBDIR      Generated scripts           (default: models)
+    ANALYZER_RESULTS_SUBDIR     Fit output dirs             (default: results)
+    ANALYZER_REPORTS_SUBDIR     Generated reports           (default: reports)
+
+Absolute overrides (legacy; win over the SUBDIR form):
+    ANALYZER_RESULTS_DIR
+    ANALYZER_COMBINED_DATA_DIR
+    ANALYZER_PARTIAL_DATA_DIR
+    ANALYZER_REPORTS_DIR
+    ANALYZER_MODELS_DIR
+
+Other:
+    ANALYZER_COMBINED_DATA_TEMPLATE  File-name template (default: REFL_{set_id}_combined_data_auto.txt)
+    ANALYZER_ENV_FILE                Extra ``.env`` loaded before project/global
+    ANALYZER_CONFIG_DIR              Override directory for the user-global ``.env``
 """
 
 import os
@@ -47,13 +76,19 @@ except ImportError:  # pragma: no cover
     _DOTENV_AVAILABLE = False
 
 
+# Lowercase, simple defaults. Override at the repo level by setting
+# ANALYZER_*_SUBDIR in a .env that lives above the project folders.
+_SUBDIR_DEFAULTS: dict[str, str] = {
+    "ANALYZER_DATA_SUBDIR":     "rawdata",
+    "ANALYZER_MODELS_SUBDIR":   "models",
+    "ANALYZER_RESULTS_SUBDIR":  "results",
+    "ANALYZER_REPORTS_SUBDIR":  "reports",
+    # ANALYZER_PARTIAL_SUBDIR has no default — it falls back to DATA.
+}
+
+# Legacy absolute-path keys + non-path scalar (template).
 _DEFAULTS: dict[str, str] = {
-    "ANALYZER_RESULTS_DIR":             "results",
-    "ANALYZER_COMBINED_DATA_DIR":       "data/combined",
-    "ANALYZER_PARTIAL_DATA_DIR":        "data/partial",
-    "ANALYZER_REPORTS_DIR":             "reports",
     "ANALYZER_COMBINED_DATA_TEMPLATE":  "REFL_{set_id}_combined_data_auto.txt",
-    "ANALYZER_MODELS_DIR":              "models",
 }
 
 
@@ -141,33 +176,93 @@ class Config:
         """
         self.loaded_env_files: List[Path] = _load_env(dotenv_path)
 
-    def _get(self, key: str) -> str:
-        return os.environ.get(key, _DEFAULTS[key])
+    # -- project root --------------------------------------------------------
+
+    def get_project_dir(self) -> str:
+        """Project root used to resolve sub-directory paths."""
+        explicit = os.environ.get("ANALYZER_PROJECT_DIR")
+        if explicit:
+            return str(Path(explicit).expanduser())
+        return str(Path.cwd())
+
+    def _resolve(self, abs_key: str, subdir_key: str, default_subdir: str) -> str:
+        """Return absolute override if set, else <project_dir>/<subdir>."""
+        absolute = os.environ.get(abs_key)
+        if absolute:
+            return absolute
+        subdir = os.environ.get(subdir_key, default_subdir)
+        return str(Path(self.get_project_dir()) / subdir)
+
+    # -- role-based path accessors ------------------------------------------
 
     def get_results_dir(self) -> str:
-        return self._get("ANALYZER_RESULTS_DIR")
+        return self._resolve(
+            "ANALYZER_RESULTS_DIR",
+            "ANALYZER_RESULTS_SUBDIR",
+            _SUBDIR_DEFAULTS["ANALYZER_RESULTS_SUBDIR"],
+        )
 
     def get_combined_data_dir(self) -> str:
-        return self._get("ANALYZER_COMBINED_DATA_DIR")
+        return self._resolve(
+            "ANALYZER_COMBINED_DATA_DIR",
+            "ANALYZER_DATA_SUBDIR",
+            _SUBDIR_DEFAULTS["ANALYZER_DATA_SUBDIR"],
+        )
 
     def get_partial_data_dir(self) -> str:
-        return self._get("ANALYZER_PARTIAL_DATA_DIR")
+        # Absolute legacy override wins.
+        absolute = os.environ.get("ANALYZER_PARTIAL_DATA_DIR")
+        if absolute:
+            return absolute
+        # Explicit subdir wins next.
+        subdir = os.environ.get("ANALYZER_PARTIAL_SUBDIR")
+        if subdir:
+            return str(Path(self.get_project_dir()) / subdir)
+        # Otherwise fall back to the combined-data directory.
+        return self.get_combined_data_dir()
 
     def get_reports_dir(self) -> str:
-        return self._get("ANALYZER_REPORTS_DIR")
-
-    def get_combined_data_template(self) -> str:
-        return self._get("ANALYZER_COMBINED_DATA_TEMPLATE")
+        return self._resolve(
+            "ANALYZER_REPORTS_DIR",
+            "ANALYZER_REPORTS_SUBDIR",
+            _SUBDIR_DEFAULTS["ANALYZER_REPORTS_SUBDIR"],
+        )
 
     def get_models_dir(self) -> str:
-        return self._get("ANALYZER_MODELS_DIR")
+        return self._resolve(
+            "ANALYZER_MODELS_DIR",
+            "ANALYZER_MODELS_SUBDIR",
+            _SUBDIR_DEFAULTS["ANALYZER_MODELS_SUBDIR"],
+        )
+
+    def get_combined_data_template(self) -> str:
+        return os.environ.get(
+            "ANALYZER_COMBINED_DATA_TEMPLATE",
+            _DEFAULTS["ANALYZER_COMBINED_DATA_TEMPLATE"],
+        )
 
     # Keep a generic accessor for forward compatibility.
     def get_path(self, key: str) -> str:
-        """Return the value of an arbitrary ANALYZER_* environment variable."""
+        """Return the value of an arbitrary ANALYZER_* config key.
+
+        Recognizes the role-based getters by short name (``results_dir``,
+        ``combined_data_dir``, ``partial_data_dir``, ``reports_dir``,
+        ``models_dir``, ``combined_data_template``) so callers don't have to
+        know whether the value is computed or a raw env var.
+        """
         env_key = key if key.startswith("ANALYZER_") else f"ANALYZER_{key.upper()}"
-        if env_key in _DEFAULTS:
-            return self._get(env_key)
+        # Map the legacy absolute-path keys to the corresponding accessor so
+        # SUBDIR overrides are honored.
+        accessors = {
+            "ANALYZER_RESULTS_DIR":            self.get_results_dir,
+            "ANALYZER_COMBINED_DATA_DIR":      self.get_combined_data_dir,
+            "ANALYZER_PARTIAL_DATA_DIR":       self.get_partial_data_dir,
+            "ANALYZER_REPORTS_DIR":            self.get_reports_dir,
+            "ANALYZER_MODELS_DIR":             self.get_models_dir,
+            "ANALYZER_COMBINED_DATA_TEMPLATE": self.get_combined_data_template,
+        }
+        if env_key in accessors:
+            return accessors[env_key]()
         return os.environ[env_key]
 
 

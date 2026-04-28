@@ -31,13 +31,21 @@ analyzer-tools --help
 
 ### Directory layout (configured via `.env` / `ANALYZER_*` env vars)
 
-| Directory | Default | Contents |
-|-----------|---------|----------|
-| Combined data | `data/combined/` | Final reflectivity curves |
-| Partial data | `data/partial/` | Individual partial curves (3 per set) |
-| Models | `models/` | Python model files for refl1d |
-| Results | `results/` | Fit outputs |
-| Reports | `reports/` | Markdown reports with plots |
+The five role-based directories are resolved as
+`$ANALYZER_PROJECT_DIR/<subdir>` (defaulting to `$PWD/<subdir>`):
+
+| Role | Default sub-folder | Override sub-folder name | Override absolute path |
+|------|-------------------|--------------------------|------------------------|
+| Combined data | `rawdata` | `ANALYZER_DATA_SUBDIR` | `ANALYZER_COMBINED_DATA_DIR` |
+| Partial data  | *(falls back to combined)* | `ANALYZER_PARTIAL_SUBDIR` | `ANALYZER_PARTIAL_DATA_DIR` |
+| Models        | `models`  | `ANALYZER_MODELS_SUBDIR` | `ANALYZER_MODELS_DIR` |
+| Results       | `results` | `ANALYZER_RESULTS_SUBDIR` | `ANALYZER_RESULTS_DIR` |
+| Reports       | `reports` | `ANALYZER_REPORTS_SUBDIR` | `ANALYZER_REPORTS_DIR` |
+
+Typical setup: `cd` into a sample folder; the analyzer uses `$PWD` as the
+project root. A repo-level `.env` *above* the sample folders can override
+the sub-folder names (e.g. `ANALYZER_DATA_SUBDIR=Rawdata`) without becoming
+the project root itself. LLM secrets live in `~/.config/analyzer/.env`.
 
 ### File naming
 

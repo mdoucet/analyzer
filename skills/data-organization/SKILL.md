@@ -58,17 +58,43 @@ A reflectivity curve is plotted as **R vs Q**, with dR as error bars, typically 
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set data paths:
+The analyzer resolves five role-based directories from a project root:
+
+| Role | Default sub-folder | Variables |
+|---|---|---|
+| Combined data | `rawdata` | `ANALYZER_COMBINED_DATA_DIR` (absolute) or `ANALYZER_DATA_SUBDIR` |
+| Partial data | *(falls back to combined)* | `ANALYZER_PARTIAL_DATA_DIR` (absolute) or `ANALYZER_PARTIAL_SUBDIR` |
+| Models | `models` | `ANALYZER_MODELS_DIR` (absolute) or `ANALYZER_MODELS_SUBDIR` |
+| Results | `results` | `ANALYZER_RESULTS_DIR` (absolute) or `ANALYZER_RESULTS_SUBDIR` |
+| Reports | `reports` | `ANALYZER_REPORTS_DIR` (absolute) or `ANALYZER_REPORTS_SUBDIR` |
+
+Project root is `ANALYZER_PROJECT_DIR` if set, else the **current working
+directory**. So in the typical case you just `cd Sample7/` and run analyzer
+commands — no `.env` needed.
+
+A repo-level `.env` (sitting **above** the sample folders) can rename the
+sub-folders without forcing the repo to be the project root. Example:
+
+```
+experiments-2025/
+├── .env                 ← repo-wide sub-folder names
+│     ANALYZER_DATA_SUBDIR=Rawdata
+│     ANALYZER_MODELS_SUBDIR=Models
+│     ANALYZER_RESULTS_SUBDIR=analyzer_results
+├── Sample5/             ← cd here; project_dir = $PWD
+└── Sample7/
+```
+
+LLM secrets (`LLM_API_KEY`, etc.) belong in the user-global
+`~/.config/analyzer/.env` and are loaded via the `.env` cascade.
+
+The combined-data filename template is independent of the path:
 
 ```dotenv
-ANALYZER_RESULTS_DIR=results
-ANALYZER_COMBINED_DATA_DIR=data/combined
-ANALYZER_PARTIAL_DATA_DIR=data/partial
-ANALYZER_REPORTS_DIR=reports
 ANALYZER_COMBINED_DATA_TEMPLATE=REFL_{set_id}_combined_data_auto.txt
 ```
 
-The `ANALYZER_COMBINED_DATA_TEMPLATE` uses `{set_id}` as a placeholder that tools replace with the actual set ID.
+`{set_id}` is replaced at runtime.
 
 ## Discovering Available Data
 
