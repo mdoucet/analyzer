@@ -11,8 +11,6 @@ data quality checks → model generation → refl1d fit → report. Built around
 for the math, with optional [AuRE](https://github.com/neutrons-ai/aure) for
 LLM-driven model creation and fit evaluation.
 
-> **Status:** prototype. Interfaces may still change between minor versions.
-
 ## Quick Start
 
 1. Install with `pip install -e ".[dev]"` (see [Installation](#installation)).
