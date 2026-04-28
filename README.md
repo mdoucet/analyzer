@@ -131,12 +131,3 @@ See [docs/configuration.md](docs/configuration.md) for the full
 If this project helps your work, please cite via the
 [Zenodo DOI](https://doi.org/10.5281/zenodo.15870378) (badge above) or the
 metadata in [CITATION.cff](CITATION.cff).
-
-## Contributing
-
-1. Tests: `pytest`. New behaviour needs new tests.
-2. Add new CLIs to `pyproject.toml [project.scripts]` *and*
-   `analyzer_tools/registry.py`.
-3. Keep skill docs in sync (`skills/<workflow>/SKILL.md` and the
-   single-file `skills/distributable/SKILL.md`).
-4. Run `analyzer-tools --list-tools` after changes to verify the registry.
