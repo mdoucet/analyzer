@@ -3,6 +3,231 @@ name: create-model
 description: >
   Generate a refl1d analyzer-convention model script. Two modes:
   (A) convert an existing AuRE problem JSON, or
+  (B) generate directly via LLM from a YAML/JSON config that lists
+  one or more measurement *states* (each grouping data files that share
+  one physical sample). Mode B auto-detects per state whether its data
+  is a single combined file or N partial files sharing a set_id, and
+  ties structural parameters across states.
+  USE FOR: creating a new model file; adapting a hand-written model for
+  co-refinement of multiple measurements / conditions.
+  DO NOT USE FOR: running fits (see fitting skill) or adjusting an existing
+  model's parameter ranges (edit the script directly). For batch use
+  across many samples, drive create-model from `analyzer-batch`.
+---
+
+# create-model
+
+## When to use
+
+- You have a **natural-language description** of a sample and one or more
+  REF_L data files, and want a model script ready for `run-fit`.
+- You already have an **AuRE problem JSON** (from `aure prepare` / `aure batch`)
+  and want to convert it to an analyzer-convention script.
+
+## The two modes
+
+### Mode A — convert an AuRE problem JSON
+
+```bash
+create-model path/to/problem.json --out models/cu_thf.py
+```
+
+Accepts either an AuRE `ModelDefinition` JSON (keys `substrate`/`ambient`/
+`layers`/`intensity`/`dq_is_fwhm`) or a bumps `problem.json` (schema
+`bumps-draft-03`).
+
+### Mode B — generate via LLM (states-driven config)
+
+Mode B is always driven by a YAML or JSON config file passed via `--config`:
+
+```bash
+create-model --config model-creation.yaml [--out PATH] [--model-name NAME]
+```
+
+The config file's directory is the base for relative paths. CLI flags
+`--out` and `--model-name` override the corresponding config keys.
+
+## Per-state file kinds (auto-detected)
+
+Within a single state, all data files must be the same kind:
+
+| Kind | Files | Probe |
+|------|-------|-------|
+| combined | one `REFL_{set}_combined_data_auto.txt` | `QProbe` (Q, dQ) |
+| partials | N `REFL_{set}_{part}_{run}_partial.txt` files sharing one set_id | `make_probe` per segment (θ, dT, λ, dL); one `Sample` shared across segments |
+
+Mixing combined and partial files within a single state is rejected.
+Different states can be of different kinds.
+
+## Config schema
+
+### Top-level keys
+
+| Key | Aliases | Meaning |
+|---|---|---|
+| `describe` | `description`, `sample_description` | Sample description (required) |
+| `states` | — | List of state mappings (required, non-empty) |
+| `model_name` | `name` | Name in docstring and default filename |
+| `out` | — | Output script path (relative to config dir) |
+| `data_dir` | — | Emit `DATA_DIR = "<value>"` at the top of the generated script; file paths below become `os.path.join(DATA_DIR, ...)`. Relative values resolve against the config dir. |
+| `shared_parameters` | — | Whitelist of dotted attribute paths tied across states |
+| `unshared_parameters` | — | Blacklist subtracted from the default tied set (mutually exclusive with `shared_parameters`) |
+
+Top-level `data:`, `data_file:`, `data_files:`, `source:`, `jobs:` and
+`defaults:` are **rejected**. For Mode A, pass the JSON file as the
+SOURCE positional argument. For batch processing, drive create-model
+from `analyzer-batch` (see below).
+
+### Per-state keys
+
+| Key | Type | Meaning |
+|---|---|---|
+| `name` | string | Unique state label |
+| `data` / `data_files` | list of paths | REF_L files (all combined OR all partials of one set_id) |
+| `extra_description` | string | Text appended to `describe` when this state is presented to the LLM. Use it to record state-specific conditions (e.g. "in H₂O instead of D₂O", "after 30 min anneal"). |
+| `theta_offset` | `false` / `true` / `{init, min, max}` | Per-state nuisance shared across the state's segments. Partials only. |
+| `sample_broadening` | `false` / `true` / `{init, min, max}` | Same syntax as `theta_offset`. Partials only. |
+| `back_reflection` | bool | Beam enters through the substrate (per state). Defaults to the LLM's answer derived from `describe`. |
+
+Defaults when set to `true`: `theta_offset = {0.0, -0.02, 0.02}`,
+`sample_broadening = {0.0, 0.0, 0.01}`.
+
+### Example: same sample in two solvents
+
+```yaml
+# model-creation.yaml
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si.
+  Neutrons enter from the silicon side.
+
+states:
+  - name: run_226642_D2O
+    extra_description: ambient is D₂O (SLD ≈ 6.4)
+    data:
+      - Rawdata/REFL_226642_1_226642_partial.txt
+      - Rawdata/REFL_226642_2_226643_partial.txt
+      - Rawdata/REFL_226642_3_226644_partial.txt
+    theta_offset:      {init: 0.0, min: -0.02, max: 0.02}
+    sample_broadening: true
+
+  - name: run_226660_H2O
+    extra_description: ambient is H₂O (SLD ≈ -0.56), measured 24 h later
+    data: [Rawdata/REFL_226660_combined_data_auto.txt]
+    back_reflection: true
+
+shared_parameters:
+  - Cu.thickness
+  - Cu.material.rho
+  - Cu.interface
+  - Ti.thickness
+  - Ti.material.rho
+  - Ti.interface
+# unshared_parameters: [CuOx.thickness]   # mutually exclusive with the above
+
+out: Models/Cu-corefine.py
+model_name: cu_corefine
+```
+
+```bash
+create-model --config model-creation.yaml
+```
+
+## Rules
+
+- **Within a state, every structural parameter is tied across the state's
+  data files.** The renderer creates one `Sample` per state and reuses it
+  for every probe in that state. Per-state `theta_offset` /
+  `sample_broadening` are likewise single `Parameter` objects shared by
+  every probe of the state.
+- A state's data files must all be the same kind; mixing combined and
+  partial within one state is rejected.
+- `theta_offset` and `sample_broadening` are only allowed on partial-kind
+  states.
+- `back_reflection` controls **stack orientation only** — the renderer
+  emits the layer pipe-expression in the correct order so refl1d's
+  default `probe.back_reflectivity = False` always gives correct physics.
+- `shared_parameters` and `unshared_parameters` are mutually exclusive.
+  When neither is set, a sensible default (every layer.thickness,
+  layer.material.rho, layer.interface, plus substrate.interface) is shared.
+
+## Batch use across many samples
+
+`create-model` itself does not iterate over a list of jobs. To create
+many models in one shot, drive it from `analyzer-batch`:
+
+```yaml
+# manifest.yaml
+data_location: ./data
+jobs:
+  - tool: create-model
+    args: [--config, configs/sample_a.yaml]
+  - tool: create-model
+    args: [--config, configs/sample_b.yaml]
+```
+
+```bash
+analyzer-batch manifest.yaml
+```
+
+Each job is one independent invocation of `create-model --config …`.
+
+## What the LLM must return
+
+The LLM is constrained to reply with a single JSON object of this shape —
+`create-model` converts it into the Python script itself, so free-form LLM
+Python is never executed:
+
+```json
+{
+  "ambient":   {"name": "D2O", "sld": 6.19,
+                "sld_min": 5.19, "sld_max": 7.19,
+                "roughness_min": 1.0, "roughness_max": 25.0},
+  "substrate": {"name": "Si",  "sld": 2.07,
+                "roughness_min": 0.0, "roughness_max": 15.0},
+  "layers": [
+    {"name": "CuOx", "sld": 5.0,  "thickness": 30.0,  "roughness": 10.0,
+     "thickness_min": 5.0,   "thickness_max": 200.0,
+     "sld_min": 3.0,         "sld_max": 7.0,
+     "roughness_min": 5.0,   "roughness_max": 30.0},
+    {"name": "Cu",   "sld": 6.4,  "thickness": 500.0, "roughness": 5.0, "...": "..."},
+    {"name": "Ti",   "sld": -1.95,"thickness": 35.0,  "roughness": 5.0, "...": "..."}
+  ],
+  "intensity":        {"value": 1.0, "min": 0.95, "max": 1.05},
+  "back_reflection":  false,
+  "shared_parameters": [
+    "Cu.material.rho", "Cu.interface",
+    "Ti.thickness", "Ti.material.rho", "Ti.interface"
+  ]
+}
+```
+
+Key rules:
+
+- `layers` goes **ambient-adjacent → substrate-adjacent** (top-to-bottom).
+  Do **not** include the ambient or substrate inside `layers`.
+- SLD bounds: at least ±2 × 10⁻⁶ Å⁻² around nominal. Adhesion layers (Ti):
+  ±3 or wider.
+- Roughness ≥ 5 Å and typically ≤ 30 Å; must be less than half the thinnest
+  adjacent layer.
+- Minimum layer thickness: 5 Å.
+- Never vary the substrate SLD.
+- Do **not** add a native SiO₂ on Si unless the user description says so.
+
+On parse or validation failure, `create-model` retries the LLM once with the
+error message appended, then aborts.
+
+## See also
+
+- [models skill](../models/SKILL.md) — anatomy of a model file, adjusting
+  parameter ranges.
+- [reflectometry-basics skill](../reflectometry-basics/SKILL.md) — domain
+  rules the LLM is instructed to follow.
+- [fitting skill](../fitting/SKILL.md) — how to run the generated script.
+---
+name: create-model
+description: >
+  Generate a refl1d analyzer-convention model script. Two modes:
+  (A) convert an existing AuRE problem JSON, or
   (B) generate directly via LLM from a sample description and one or more
   REF_L data files. Mode B auto-detects which of the three fitting cases
   applies: single combined file (case 1), multiple partial files from one

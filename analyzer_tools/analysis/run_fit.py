@@ -1,257 +1,150 @@
+"""Run a reflectivity fit from a complete refl1d-ready Python script.
+
+The new ``run-fit`` is a thin driver around ``bumps.fitters.fit``. It expects
+a script (typically produced by ``create-model``) that defines a module-level
+``problem = FitProblem(...)`` and loads its own data. The fit results are
+written to ``<results-dir>/<name>`` and an assessment report is generated in
+``<reports-dir>``.
+"""
+
+from __future__ import annotations
+
 import os
-import sys
-import importlib.util
-from analyzer_tools.config_utils import get_config
-import shlex
-import shutil
-import subprocess
-from typing import List, Optional
+import runpy
+from pathlib import Path
+from typing import Optional
 
 import click
-import numpy as np
-from refl1d.names import *
-from bumps.fitters import fit
+
+from analyzer_tools.config_utils import get_config
 
 
-def execute_fit(model_name, data_file, output_dir):
-    """
-    This script executes a fit using a predefined model and data.
-
-    Parameters
-    ----------
-    model_name : str
-        The name of the model module (e.g., 'cu_thf'). The file
-        ``<ANALYZER_MODELS_DIR>/<model_name>.py`` must define
-        ``create_fit_experiment(q, dq, data, errors)``.
-    data_file : str
-        Path to the data file.
-    output_dir : str
-        The directory where fit results will be saved.
-    """
-    models_dir = get_config().get_models_dir()
-    model_path = os.path.join(models_dir, f"{model_name}.py")
-    if not os.path.isfile(model_path):
-        print(
-            f"Error: Model file '{model_path}' not found "
-            f"(ANALYZER_MODELS_DIR='{models_dir}')."
+def _load_problem(script_path: Path):
+    """Execute *script_path* and return its module-level ``problem``."""
+    ns = runpy.run_path(str(script_path), run_name="__analyzer_run_fit__")
+    if "problem" not in ns:
+        raise click.ClickException(
+            f"Script {script_path} does not define a module-level `problem` "
+            f"(expected `problem = FitProblem(...)`)."
         )
-        return
-    try:
-        spec = importlib.util.spec_from_file_location(f"_analyzer_model_{model_name}", model_path)
-        if spec is None or spec.loader is None:
-            print(f"Error: Could not load model spec from '{model_path}'.")
-            return
-        model_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(model_module)
-        create_fit_experiment = model_module.create_fit_experiment
-    except AttributeError:
-        print(
-            f"Error: 'create_fit_experiment' function not found in '{model_path}'."
-        )
-        return
-    except Exception as e:
-        print(f"Error: Could not import model '{model_name}' from '{model_path}': {e}")
-        return
-
-    if not os.path.exists(data_file):
-        print(f"Error: Data file not found at {data_file}")
-        return
-
-    _refl = np.loadtxt(data_file).T
-
-    experiment = create_fit_experiment(_refl[0], _refl[3], _refl[1], _refl[2])
-    problem = FitProblem(experiment)
-
-    fit(
-        problem,
-        method="dream",
-        samples=10000,
-        burn=5000,
-        alpha=1,
-        verbose=1,
-        export=f"{output_dir}",
-    )
-
-    return output_dir
+    return ns["problem"]
 
 
-
-
-
-# ---------------------------------------------------------------------------
-# AuRE wrapper
-# ---------------------------------------------------------------------------
-
-
-def build_aure_command(
-    data_file: str,
-    sample_description: str,
-    output_dir: str,
-    *,
-    max_refinements: int = 5,
-    extra_data: Optional[List[str]] = None,
-    aure_executable: str = "aure",
-    extra_args: Optional[List[str]] = None,
-) -> List[str]:
-    """Build an ``aure analyze`` command line as a list of args."""
-    cmd: List[str] = [
-        aure_executable,
-        "analyze",
-        str(data_file),
-        sample_description,
-        "-o",
-        str(output_dir),
-        "-m",
-        str(int(max_refinements)),
-    ]
-    for extra in extra_data or []:
-        cmd.extend(["-d", str(extra)])
-    if extra_args:
-        cmd.extend(extra_args)
-    return cmd
-
-
-def _read_sample_description(source: str) -> str:
-    """If *source* is a file path, return its contents; else return *source* verbatim."""
-    if os.path.isfile(source):
-        with open(source, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return source
-
-
-@click.command()
-@click.argument("set_id", type=str)
-@click.argument("model_name", type=str, required=False)
-@click.option(
-    "--data-dir",
-    type=click.Path(exists=True, file_okay=False),
-    default=None,
-    help="Directory containing the combined data files.",
+@click.command(context_settings={"show_default": True})
+@click.argument(
+    "script",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
 @click.option(
     "--results-dir",
-    type=click.Path(file_okay=False),
+    type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Top level directory to store results.",
+    help="Parent directory for fit output. Defaults to $ANALYZER_RESULTS_DIR.",
 )
 @click.option(
     "--reports-dir",
-    type=click.Path(file_okay=False),
+    type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Top level directory to store reports.",
+    help="Directory for the assessment report. Defaults to $ANALYZER_REPORTS_DIR.",
 )
 @click.option(
-    "--use-aure/--legacy",
-    default=None,
-    help="Force AuRE or legacy path. Auto-detects from --sample-description/-d if omitted.",
-)
-@click.option(
-    "-d",
-    "--sample-description",
-    "sample_description",
+    "--name",
     type=str,
     default=None,
-    help="Sample description text or path to a markdown file. Enables AuRE mode.",
+    help="Output subfolder name and report tag. Defaults to the script stem.",
 )
 @click.option(
-    "-m",
-    "--max-refinements",
-    type=int,
-    default=5,
-    show_default=True,
-    help="AuRE refinement iterations (only used in --use-aure mode).",
+    "--fit",
+    "fitter",
+    type=str,
+    default="dream",
+    help="Bumps fitter (e.g. dream, amoeba, lm, de, newton).",
 )
+@click.option("--samples", type=int, default=10000, help="DREAM samples.")
+@click.option("--burn", type=int, default=5000, help="DREAM burn-in steps.")
+@click.option("--steps", type=int, default=0, help="Fitter steps (0 = fitter default).")
+@click.option("--pop", type=int, default=0, help="Population size (0 = fitter default).")
+@click.option("--init", type=str, default=None, help="DREAM init strategy.")
+@click.option("--alpha", type=float, default=1.0, help="DREAM outlier alpha.")
+@click.option("--seed", type=int, default=None, help="Random seed.")
 @click.option(
-    "--dry-run",
+    "--no-assess",
     is_flag=True,
     default=False,
-    help="In AuRE mode, print the command instead of running it.",
+    help="Skip post-fit assess-result invocation.",
 )
 def main(
-    set_id: str,
-    model_name: Optional[str],
-    data_dir: Optional[str],
-    results_dir: Optional[str],
-    reports_dir: Optional[str],
-    use_aure: Optional[bool],
-    sample_description: Optional[str],
-    max_refinements: int,
-    dry_run: bool,
-):
-    """
-    Execute a reflectivity fit.
+    script: Path,
+    results_dir: Optional[Path],
+    reports_dir: Optional[Path],
+    name: Optional[str],
+    fitter: str,
+    samples: int,
+    burn: int,
+    steps: int,
+    pop: int,
+    init: Optional[str],
+    alpha: float,
+    seed: Optional[int],
+    no_assess: bool,
+) -> None:
+    """Run a fit on SCRIPT (a complete refl1d-ready Python file).
 
     \b
-    Legacy mode (default when MODEL_NAME is a file in models/):
-        run-fit 218281 cu_thf
-    AuRE mode (when -d/--sample-description is given, or --use-aure is set):
-        run-fit 218281 cu_thf -d "Cu/Ti on Si in dTHF"
-        run-fit 218281 cu_thf -d sample.md --dry-run
+    Examples:
+        run-fit my_model.py --results-dir ./Results --fit dream --samples 20000
     """
     config = get_config()
-
-    if data_dir is None:
-        data_dir = config.get_combined_data_dir()
     if results_dir is None:
-        results_dir = config.get_results_dir()
+        results_dir = Path(config.get_results_dir())
     if reports_dir is None:
-        reports_dir = config.get_reports_dir()
+        reports_dir = Path(config.get_reports_dir())
 
-    data_file_template = config.get_combined_data_template()
-    data_file = os.path.join(data_dir, data_file_template.format(set_id=set_id))
-    model_suffix = model_name or "aure"
-    output_dir = os.path.join(results_dir, f"{set_id}_{model_suffix}")
-    os.makedirs(output_dir, exist_ok=True)
+    tag = name or script.stem
+    output_dir = results_dir / tag
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Decide mode.
-    if use_aure is None:
-        use_aure = sample_description is not None
+    problem = _load_problem(script)
 
-    if use_aure:
-        if sample_description is None:
-            raise click.BadParameter(
-                "--use-aure requires -d/--sample-description (text or markdown path)."
-            )
-        description = _read_sample_description(sample_description)
-        cmd = build_aure_command(
-            data_file=data_file,
-            sample_description=description,
-            output_dir=output_dir,
-            max_refinements=max_refinements,
-        )
-        printable = " ".join(shlex.quote(c) for c in cmd)
-        if dry_run:
-            click.echo(printable)
-            return
-        if shutil.which(cmd[0]) is None:
-            click.echo(
-                f"AuRE CLI '{cmd[0]}' not found on PATH. Install AuRE or re-run with --dry-run.",
-                err=True,
-            )
-            click.echo(f"Would run: {printable}", err=True)
-            sys.exit(2)
-        click.echo(f"Running: {printable}", err=True)
-        subprocess.run(cmd, check=True)
-        return
+    # Bumps writes export files as ``<problem.name>-*.dat``. If the script
+    # does not set a name, bumps falls back to ``None`` which yields
+    # ``None-1-refl.dat`` on disk and breaks downstream tools (e.g.
+    # ``assess-result`` globs ``problem-*-refl.dat``). Force the basename.
+    if not getattr(problem, "name", None):
+        problem.name = "problem"
 
-    # Legacy path
-    if model_name is None:
-        raise click.BadParameter(
-            "MODEL_NAME is required in legacy mode. "
-            "Provide a models/<name>.py or use -d/--sample-description for AuRE mode."
-        )
-    click.echo(
-        "Note: legacy run-fit path is deprecated. Pass -d/--sample-description to use AuRE.",
-        err=True,
-    )
+    # Build kwargs for bumps.fitters.fit, omitting zero/None placeholders so
+    # the fitter's own defaults apply.
+    fit_kwargs = {
+        "method": fitter,
+        "alpha": alpha,
+        "verbose": 1,
+        "export": str(output_dir),
+    }
+    if fitter == "dream":
+        fit_kwargs["samples"] = samples
+        fit_kwargs["burn"] = burn
+    if steps > 0:
+        fit_kwargs["steps"] = steps
+    if pop > 0:
+        fit_kwargs["pop"] = pop
+    if init is not None:
+        fit_kwargs["init"] = init
+    if seed is not None:
+        fit_kwargs["seed"] = seed
 
-    try:
-        from .result_assessor import assess_result
-    except ImportError:
-        from analyzer_tools.analysis.result_assessor import assess_result
+    from bumps.fitters import fit as _bumps_fit
 
-    execute_fit(model_name, data_file, output_dir)
-    assess_result(output_dir, set_id, model_name, reports_dir)
+    click.echo(f"Running fit: script={script} → {output_dir}", err=True)
+    _bumps_fit(problem, **fit_kwargs)
+
+    if not no_assess:
+        try:
+            from .result_assessor import assess_result
+        except ImportError:  # pragma: no cover - script-style import
+            from analyzer_tools.analysis.result_assessor import assess_result
+
+        assess_result(str(output_dir), str(reports_dir))
 
 
 if __name__ == "__main__":

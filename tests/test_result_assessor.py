@@ -33,19 +33,19 @@ class TestResultAssessor:
         np.savetxt(os.path.join(fit_results_dir, 'problem-1-profile.dat'), profile_data)
 
         # Act
-        result_assessor.assess_result(fit_results_dir, set_id, model_name, self.reports_dir)
+        result_assessor.assess_result(fit_results_dir, self.reports_dir)
 
         # Assert
-        report_path = os.path.join(self.reports_dir, f'report_{set_id}.md')
+        report_path = os.path.join(self.reports_dir, f'report_fit_results.md')
         assert os.path.exists(report_path)
 
         with open(report_path, 'r') as f:
             report_content = f.read()
 
-        assert f'## Fit results for {model_name}' in report_content
+        assert '## Fit results' in report_content
         assert 'Chi-squared' in report_content
-        assert f'![Fit result](fit_result_{set_id}_{model_name}_reflectivity.svg)' in report_content
-        assert f'![SLD profile](fit_result_{set_id}_{model_name}_profile.svg)' in report_content
+        assert f'![Fit result](fit_result_fit_results_reflectivity.svg)' in report_content
+        assert f'![SLD profile](fit_result_fit_results_profile.svg)' in report_content
 
         assert mock_savefig.call_count == 2
         mock_plot_sld.assert_called_once()
@@ -107,10 +107,10 @@ Cu thickness 500.102"""
             f.write(out_content)
 
         # Act
-        result_assessor.assess_result(fit_results_dir, set_id, model_name, self.reports_dir)
+        result_assessor.assess_result(fit_results_dir, self.reports_dir)
 
         # Assert
-        report_path = os.path.join(self.reports_dir, f'report_{set_id}.md')
+        report_path = os.path.join(self.reports_dir, f'report_fit_results.md')
         assert os.path.exists(report_path)
 
         with open(report_path, 'r') as f:
@@ -144,9 +144,9 @@ Cu thickness 500.102"""
             f.write('invalid json content')
 
         # Act & Assert - should not raise exception
-        result_assessor.assess_result(fit_results_dir, set_id, model_name, self.reports_dir)
+        result_assessor.assess_result(fit_results_dir, self.reports_dir)
 
-        report_path = os.path.join(self.reports_dir, f'report_{set_id}.md')
+        report_path = os.path.join(self.reports_dir, f'report_fit_results.md')
         assert os.path.exists(report_path)
 
     @patch('matplotlib.pyplot.savefig')
@@ -160,7 +160,7 @@ Cu thickness 500.102"""
         # No data files created
 
         # Act
-        result_assessor.assess_result(fit_results_dir, set_id, model_name, self.reports_dir)
+        result_assessor.assess_result(fit_results_dir, self.reports_dir)
 
         # Assert - should handle missing files gracefully
         assert mock_savefig.call_count == 0
@@ -182,7 +182,7 @@ Cu thickness 500.102"""
                 
                 result = runner.invoke(
                     result_assessor.main, 
-                    [test_data_dir, '123', 'test_model']
+                    [test_data_dir]
                 )
                 
                 assert result.exit_code == 0, f"CLI failed: {result.output}"

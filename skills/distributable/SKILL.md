@@ -59,23 +59,33 @@ analyzer-tools --help
 
 ### Fitting workflow
 
-#### 1. `run-fit` — Fit combined data to a model
+#### 1. `run-fit` — Run a refl1d-ready model script
 
 ```bash
-run-fit <SET_ID> <MODEL_NAME>
+run-fit SCRIPT [--results-dir DIR] [--reports-dir DIR] [--name NAME] \
+                [--fit dream] [--samples 10000] [--burn 5000] [--no-assess]
 ```
 
-Loads `REFL_{SET_ID}_combined_data_auto.txt`, runs DREAM MCMC (10k samples,
-5k burn-in), saves results to `results/{SET_ID}_{MODEL_NAME}/`.
+`SCRIPT` is a complete refl1d Python file (typically produced by
+`create-model`) that defines a module-level `problem = FitProblem(...)` and
+loads its own data. Output lands in `<results-dir>/<name>/` (default
+`<results-dir>/<script-stem>/`). Unless `--no-assess` is given, `run-fit`
+automatically calls `assess-result` afterwards. Defaults for `--results-dir`
+and `--reports-dir` come from `$ANALYZER_RESULTS_DIR` and
+`$ANALYZER_REPORTS_DIR`.
 
 #### 2. `assess-result` — Evaluate fit quality
 
 ```bash
-assess-result <RESULTS_DIR> <SET_ID> <MODEL_NAME>
+assess-result <RESULTS_DIR> [--output-dir DIR] [--skip-aure-eval] \
+              [--context TEXT | --sample-description FILE]
 ```
 
-Generates reflectivity plot, SLD profile with 90% CL uncertainty bands,
-parameter table, and markdown report in `reports/`.
+The basename of `RESULTS_DIR` is used as the report tag (e.g.
+`results/cu_thf` → `report_cu_thf.md`). All experiments in the fit are
+overlaid on the reflectivity plot; every distinct SLD profile is shown with
+90% CL uncertainty bands. Output goes to `--output-dir` (default
+`$ANALYZER_REPORTS_DIR`).
 
 **Chi-squared quality thresholds:**
 
@@ -89,40 +99,69 @@ parameter table, and markdown report in `reports/`.
 #### 3. `create-model` — Generate a refl1d model script
 
 Two modes. **Mode A** converts an existing AuRE problem JSON. **Mode B**
-generates a script via LLM from a natural-language description plus one or
-more REF_L data files; it auto-detects which of the three cases applies:
+generates a script via LLM from a YAML/JSON config that lists one or more
+measurement *states*; each state groups files that share one physical
+sample. Per state the file kind is auto-detected:
 
-- **Case 1** — one combined file (`QProbe`).
-- **Case 2** — multiple partial files (`REFL_{set}_{part}_{run}_partial.txt`)
-  sharing a `set_id` (`make_probe` per segment).
-- **Case 3** — multiple combined files co-refined with shared structural
-  parameters (**only** supported by this tool, not by AuRE).
+- one combined file → single `QProbe` segment
+- N partial files (`REFL_{set}_{part}_{run}_partial.txt`) sharing one
+  `set_id` → N `make_probe` segments per state, with one `Sample` reused
+  across them.
+
+Structural parameters are tied across states via `shared_parameters`
+(whitelist) or `unshared_parameters` (blacklist). Each state may carry
+`extra_description` text (e.g. "in H₂O instead of D₂O") that is appended
+to the global `describe` when the LLM is told about it.
 
 ```bash
 # Mode A — from a problem JSON
 create-model path/to/problem.json --out models/cu_thf.py
 
-# Mode B — description + one combined file (case 1)
-create-model --describe "50 nm Cu / 3 nm Ti on Si in D2O" \
-             --data data/combined/REFL_218281_combined_data_auto.txt \
-             --out models/cu_thf.py
-
-# Mode B — co-refine two combined files (case 3)
-create-model --describe "2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O" \
-             --data data/combined/REFL_226642_combined_data_auto.txt \
-             --data data/combined/REFL_226652_combined_data_auto.txt \
-             --out models/Cu-D2O-corefine.py
-
-# Any mode — options from a YAML/JSON config (flat or AuRE-style `jobs:` list)
+# Mode B — states-driven config (single or multi-state co-refinement)
 create-model --config model-creation.yaml
-
-# Multi-state co-refinement (states: list in the config) — mix partials and
-# combined files, tie structural parameters across states, let per-state
-# theta_offset / sample_broadening float. See skills/create-model/SKILL.md.
-# Add `data_dir: <path>` to the config to emit a top-level DATA_DIR variable
-# in the generated script — file paths become os.path.join(DATA_DIR, ...)
-# so users can share the script and only edit DATA_DIR.
 ```
+
+Minimal Mode B config:
+
+```yaml
+describe: 50 nm Cu / 3 nm Ti on Si in D2O
+states:
+  - name: run_218281
+    data: [data/combined/REFL_218281_combined_data_auto.txt]
+out: models/cu_thf.py
+model_name: cu_thf
+```
+
+Multi-state example (mix partials and combined files; share Cu and Ti
+across states; record per-state conditions):
+
+```yaml
+describe: 2 nm CuOx / 50 nm Cu / 3 nm Ti on Si
+states:
+  - name: D2O
+    extra_description: ambient is D₂O (SLD ≈ 6.4)
+    data:
+      - data/partial/REFL_226642_1_226642_partial.txt
+      - data/partial/REFL_226642_2_226643_partial.txt
+      - data/partial/REFL_226642_3_226644_partial.txt
+    theta_offset: {init: 0.0, min: -0.02, max: 0.02}
+  - name: H2O
+    extra_description: ambient is H₂O (SLD ≈ -0.56)
+    data: [data/combined/REFL_226660_combined_data_auto.txt]
+shared_parameters:
+  - Cu.thickness
+  - Cu.material.rho
+  - Ti.thickness
+out: models/Cu-corefine.py
+```
+
+Add `data_dir: <path>` at the top level of the config to emit a
+`DATA_DIR` variable in the generated script — file paths become
+`os.path.join(DATA_DIR, ...)` so the script is portable. See
+`skills/create-model/SKILL.md` for the full schema.
+
+To create many models in one go, drive `create-model` from
+`analyzer-batch` (one job per `--config FILE`).
 
 ### Model adjustment
 
@@ -213,13 +252,26 @@ missing, `aure.llm` is not importable, or the LLM endpoint is unreachable.
 ## End-to-end Pipeline (recommended)
 
 For a single sample, `analyze-sample` drives everything — partial-overlap
-checks → reduction-issue gate → AuRE model creation → AuRE fit → AuRE
-evaluation — and writes a consolidated report:
+checks → reduction-issue gate → `create-model` → `run-fit` (which auto-runs
+`assess-result`) → optional AuRE evaluation — and writes a consolidated
+report:
 
 ```bash
-analyze-sample sample_218281.md       # sample.md has YAML frontmatter + description
-analyze-sample 218281 --dry-run       # or just a set ID
+analyze-sample sample_218281.yaml          # YAML in create-model --config shape
+analyze-sample sample_218281.yaml --dry-run
+analyze-sample sample_218281.yaml --skip-aure-eval
 ```
+
+The argument is a YAML file in the **same shape as `create-model --config`**
+(top-level `describe`, `model_name`, `states:` list; per-state `name`, `data`,
+optional `theta_offset` / `sample_broadening` / `back_reflection`). Two
+pipeline-only extras are accepted at the top level:
+
+- `hypothesis:` — passed to `aure evaluate -h`.
+- `theta_offset:` — list of pre-computed `{run, offset}` entries used by the
+  reduction-issue gate (the `theta-offset` tool itself is **not** invoked).
+
+The pipeline tag is `model_name` (or `name`), defaulting to the YAML stem.
 
 If the reduction-issue gate trips, the pipeline emits
 `reports/sample_<id>/reduction_issues.md` and a pre-filled
@@ -229,35 +281,35 @@ Reduction is **never** auto-executed.
 ## Standard Fitting Workflow (manual)
 
 ```
-create-model --describe "<sample description>" --data <file> [--data <file2> ...] --out models/<name>.py
+create-model --config <config.yaml>     # or: create-model <problem.json>
     │
     ▼
-run-fit <SET_ID> <MODEL>
+run-fit <script.py>                    # auto-calls assess-result
     │
-    ▼
-assess-result results/<SET_ID>_<MODEL> <SET_ID> <MODEL> --context "<description>"
-    │  → plots, parameter table, markdown report with AuRE evaluation
     ▼
 ┌─ acceptable? ─────────────────────────┐
 │  Yes → record in analysis notes       │
-│  No  → edit models/<name>.py, re-fit  │
+│  No  → edit the YAML config or the    │
+│        generated script and re-fit    │
 └───────────────────────────────────────┘
 ```
 
 ### Complete example
 
 ```bash
-# 1. Generate a model (Mode B — LLM)
-create-model --describe "Cu/Ti on Si in dTHF" \
-             --data data/combined/REFL_218281_combined_data_auto.txt \
-             --out models/cu_thf.py
+# 1. Generate a model (Mode B — LLM, states-driven config)
+cat > cu_thf.yaml <<'YAML'
+describe: Cu/Ti on Si in dTHF
+states:
+  - name: run_218281
+    data: [data/combined/REFL_218281_combined_data_auto.txt]
+out: models/cu_thf.py
+model_name: cu_thf
+YAML
+create-model --config cu_thf.yaml
 
-# 2. Fit
-run-fit 218281 cu_thf
-
-# 3. Assess (also runs aure evaluate)
-assess-result results/218281_cu_thf 218281 cu_thf \
-  --context "Cu/Ti bilayer on Si in deuterated THF"
+# 2. Fit (auto-runs assess-result afterwards)
+run-fit models/cu_thf.py
 ```
 
 ---

@@ -285,6 +285,11 @@ class StateSpec:
     # surface / beam entry) always gives correct physics. ``None`` means
     # "inherit from the top-level ModelSpec".
     back_reflection: Optional[bool] = None
+    # Free-form text appended to the global ``describe`` when this state
+    # is presented to the LLM. Use it to record state-specific conditions
+    # (e.g. solvent change, temperature) that the shared sample stack
+    # alone cannot express.
+    extra_description: Optional[str] = None
 
 
 def _normalise_state_param(
@@ -411,6 +416,17 @@ def build_state_specs(
                 f"{back_refl_raw!r}."
             )
 
+        extra_desc_raw = entry.get("extra_description")
+        if extra_desc_raw is None:
+            extra_desc: Optional[str] = None
+        elif isinstance(extra_desc_raw, str):
+            extra_desc = extra_desc_raw.strip() or None
+        else:
+            raise ValueError(
+                f"State {name!r}: 'extra_description' must be a string, got "
+                f"{type(extra_desc_raw).__name__}."
+            )
+
         specs.append(
             StateSpec(
                 name=name,
@@ -420,6 +436,7 @@ def build_state_specs(
                 theta_offset=theta_off,
                 sample_broadening=samp_broad,
                 back_reflection=back_refl,
+                extra_description=extra_desc,
             )
         )
     return specs
@@ -1232,10 +1249,11 @@ def build_states_llm_prompt(
             runs = header.get("runs") or []
             run_str = ", ".join(f"2θ={r['two_theta']:.3f}°" for r in runs) or "—"
             file_lines.append(f"    * {p.name}  [{run_str}]")
-        blocks.append(
-            f"- State {s.name!r} ({s.kind}, {len(s.data_files)} file(s)):\n"
-            + "\n".join(file_lines)
-        )
+        head = f"- State {s.name!r} ({s.kind}, {len(s.data_files)} file(s))"
+        if s.extra_description:
+            head += f" — {s.extra_description}"
+        head += ":"
+        blocks.append(head + "\n" + "\n".join(file_lines))
     states_block = "\n".join(blocks)
 
     shared_instr = (

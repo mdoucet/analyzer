@@ -1,6 +1,159 @@
 ---
 name: fitting
 description: >
+  Reflectivity fitting workflow — generate a model script, run a fit, and
+  evaluate the result.
+  USE FOR: fitting reflectivity data, evaluating fit quality, iterating on a model.
+  DO NOT USE FOR: partial data quality checks (see partial-assessment skill),
+  data reduction (see time-resolved skill), or end-to-end pipelines for a
+  single sample (see pipeline skill — `analyze-sample`).
+---
+
+# Reflectivity Fitting Workflow
+
+## Overview
+
+The standard single-fit workflow is:
+
+1. **`create-model`** — Generate a complete refl1d-ready Python script from
+   either an AuRE `ModelDefinition` JSON (Mode A) or a YAML/JSON config
+   describing each physical state (Mode B). The script defines a module-level
+   `problem = FitProblem(...)` and loads its own data.
+2. **`run-fit`** — Execute that script with `bumps.fitters.fit` and write fit
+   output to `<results-dir>/<name>/`.
+3. **`assess-result`** — Generate plots, parameter tables, and a markdown
+   report; automatically appends an `## LLM Evaluation (AuRE)` section when
+   AuRE is installed. (`run-fit` calls this automatically unless
+   `--no-assess` is given.)
+
+For an end-to-end single-sample pipeline (partial checks → reduction gate →
+fit → evaluate), use **`analyze-sample`** instead. See the `pipeline` skill.
+
+## Step 1: Create a Model Script
+
+See the [create-model skill](../create-model/SKILL.md) for the full reference.
+The output is always a self-contained script that can be passed straight to
+`run-fit` (or executed directly with the `refl1d` CLI).
+
+```bash
+# Mode A — from an AuRE problem JSON
+create-model path/to/NNN_model_initial.json --out models/cu_thf.py
+
+# Mode B — from a YAML config that describes one or more states
+create-model --config model-creation.yaml
+```
+
+## Step 2: Run a Fit
+
+```bash
+run-fit SCRIPT [options]
+```
+
+`SCRIPT` is the complete model script produced by `create-model` (or any
+refl1d script that exposes `problem` at module level).
+
+### Options
+
+| Option | Default | Notes |
+|---|---|---|
+| `--results-dir DIR` | `$ANALYZER_RESULTS_DIR` | Parent dir for fit output. |
+| `--reports-dir DIR` | `$ANALYZER_REPORTS_DIR` | Where the assessment report is written. |
+| `--name NAME` | script stem | Output subfolder name and report tag. |
+| `--fit FITTER` | `dream` | Bumps fitter (`dream`, `amoeba`, `lm`, `de`, `newton`). |
+| `--samples N` | `10000` | DREAM samples (only with `--fit dream`). |
+| `--burn N` | `5000` | DREAM burn-in (only with `--fit dream`). |
+| `--steps N` | fitter default | Optional fitter-specific step count. |
+| `--pop N` | fitter default | Optional population size. |
+| `--init STR` | — | DREAM init strategy. |
+| `--alpha F` | `1.0` | DREAM outlier alpha. |
+| `--seed N` | — | Random seed. |
+| `--no-assess` | off | Skip the post-fit `assess-result` call. |
+
+**Examples:**
+
+```bash
+# Fit a generated script with defaults; output goes to $ANALYZER_RESULTS_DIR/<stem>/
+run-fit Models/cu_thf.py
+
+# Override results location and use a denser DREAM run
+run-fit Models/corefine-226667-226670.py \
+  --results-dir Results --samples 20000 --burn 10000
+
+# Fit only, no assessment
+run-fit Models/quick.py --no-assess
+```
+
+### What it does
+
+1. Executes the script (`runpy`) and grabs its module-level `problem`.
+2. Calls `bumps.fitters.fit(problem, method=..., export=<results-dir>/<name>)`.
+3. Unless `--no-assess`, calls `assess-result` on the output directory.
+
+### Output files (in `<results-dir>/<name>/`)
+
+| File | Contents |
+|------|----------|
+| `problem.par` | Fitted parameter values |
+| `problem-err.json` | Parameter uncertainties |
+| `problem-1-expt.json` | FitProblem definition |
+| `problem.out` | Overall fit statistics |
+| `*-refl.dat` | Reflectivity data + calculated fit |
+| `problem-1-profile.dat` | SLD profile |
+
+## Step 3: Assess the Result
+
+`run-fit` calls `assess-result` automatically. To run it manually:
+
+```bash
+assess-result <RESULTS_DIR> [options]
+```
+
+The basename of `RESULTS_DIR` becomes the report tag, so e.g.
+`assess-result results/cu_thf` writes `report_cu_thf.md`. Use
+`--output-dir DIR` to override `$ANALYZER_REPORTS_DIR`.
+
+### Chi-squared quality thresholds
+
+| χ² range | Assessment | Recommended action |
+|----------|------------|-------------------|
+| < 2.0 | Excellent | Review parameter uncertainties |
+| 2.0 – 3.0 | Good | Check for systematic residual patterns |
+| 3.0 – 5.0 | Acceptable | Consider adjusting model |
+| > 5.0 | Poor | Model likely needs revision |
+
+### AuRE LLM evaluation fields
+
+| Field | Meaning |
+|-------|---------|
+| `verdict` / `acceptable` | Overall assessment |
+| `issues` | Concrete problems (boundary hits, residual structure, …) |
+| `suggestions` | Actionable next steps |
+| `physical_concerns` | Parameters that are physically implausible |
+
+## Complete Workflow Example
+
+```bash
+# 1. Generate a model script from a config
+create-model --config model-creation.yaml      # → Models/cu_thf.py
+
+# 2. Fit (auto-runs assess-result afterwards)
+run-fit Models/cu_thf.py
+
+# Result lands in $ANALYZER_RESULTS_DIR/cu_thf/
+# Report lands in $ANALYZER_REPORTS_DIR/report_cu_thf.md
+```
+
+## Notes
+
+- All analysis results should be recorded in `docs/analysis_notes.md`.
+- The default fitter is Bumps DREAM (Differential Evolution Adaptive Metropolis).
+- MCMC samples provide parameter uncertainty estimates.
+- SLD profile uncertainty bands represent 90% confidence intervals.
+- For end-to-end sample analysis with reduction-issue gating, use
+  **`analyze-sample`** (see the `pipeline` skill).
+---
+name: fitting
+description: >
   Reflectivity fitting workflow — generate a model, run fits, and evaluate
   the result (assess-result + AuRE LLM evaluation).
   USE FOR: fitting combined data, evaluating fit quality, iterating on a model.

@@ -308,13 +308,13 @@ def test_cli_mode_b_calls_llm_and_writes_script(
     monkeypatch: pytest.MonkeyPatch,
     model_spec_dict: Dict[str, Any],
 ) -> None:
-    """Mode B: --describe + --data → generate_model_script → file written."""
-    # Copy a sample file into tmp so the CLI can read its header.
+    """Mode B: --config with a single-state shape → script written."""
+    import yaml
+
     src = SAMPLE_DATA_DIR / "REFL_218281_combined_data_auto.txt"
     data_path = tmp_path / "REFL_218281_combined_data_auto.txt"
     data_path.write_bytes(src.read_bytes())
 
-    # Monkeypatch the LLM call so no network/auth is required.
     captured: Dict[str, Any] = {}
 
     def fake_call(messages, *, llm=None, max_retries=1):  # noqa: ARG001
@@ -324,26 +324,23 @@ def test_cli_mode_b_calls_llm_and_writes_script(
     monkeypatch.setattr(mg, "call_llm_for_model_spec", fake_call)
 
     out_path = tmp_path / "models" / "generated.py"
-    runner = CliRunner()
-    result = runner.invoke(
-        cm.main,
-        [
-            "--describe",
-            "2 nm CuOx / 50 nm Cu / 3.5 nm Ti on Si in D2O",
-            "--data",
-            str(data_path),
-            "--out",
-            str(out_path),
-            "--model-name",
-            "gen_cu",
+    config = {
+        "describe": "2 nm CuOx / 50 nm Cu / 3.5 nm Ti on Si in D2O",
+        "model_name": "gen_cu",
+        "out": str(out_path),
+        "states": [
+            {"name": "run1", "data": [data_path.name]},
         ],
-    )
+    }
+    cfg_path = tmp_path / "model.yaml"
+    cfg_path.write_text(yaml.safe_dump(config))
+
+    runner = CliRunner()
+    result = runner.invoke(cm.main, ["--config", str(cfg_path)])
     assert result.exit_code == 0, result.output
     assert out_path.exists()
     content = out_path.read_text()
-    assert "create_fit_experiment" in content
-    assert "QProbe" in content
-    assert "FitProblem(experiment)" in content
+    assert "FitProblem(" in content
     # LLM saw a user message with the description.
     assert any(
         "2 nm CuOx" in m.get("content", "") for m in captured["messages"]
@@ -355,7 +352,7 @@ def test_cli_config_file_drives_mode_b(
     monkeypatch: pytest.MonkeyPatch,
     model_spec_dict: Dict[str, Any],
 ) -> None:
-    """A YAML config file can supply describe/data/out."""
+    """A YAML config with states: drives Mode B end-to-end."""
     import yaml
 
     src = SAMPLE_DATA_DIR / "REFL_218281_combined_data_auto.txt"
@@ -365,9 +362,11 @@ def test_cli_config_file_drives_mode_b(
     out_path = tmp_path / "models" / "from_config.py"
     config = {
         "describe": "Cu/Ti on Si in D2O",
-        "data": [str(data_path)],
-        "out": str(out_path),
         "model_name": "from_cfg",
+        "out": str(out_path),
+        "states": [
+            {"name": "only", "data": [str(data_path)]},
+        ],
     }
     cfg_path = tmp_path / "model.yaml"
     cfg_path.write_text(yaml.safe_dump(config))
@@ -382,24 +381,44 @@ def test_cli_config_file_drives_mode_b(
     result = runner.invoke(cm.main, ["--config", str(cfg_path)])
     assert result.exit_code == 0, result.output
     assert out_path.exists()
-    assert "create_fit_experiment" in out_path.read_text()
+    assert "FitProblem(" in out_path.read_text()
 
 
 def test_cli_rejects_both_modes_simultaneously(tmp_path: Path) -> None:
+    """Mode A SOURCE and Mode B --config are mutually exclusive."""
+    import yaml
+
     json_path = tmp_path / "x.json"
     json_path.write_text('{"substrate": {"name": "Si", "sld": 2.07}, '
                          '"ambient": {"name": "D2O", "sld": 6.19}, '
                          '"layers": []}')
-    data_path = tmp_path / "REFL_218281_combined_data_auto.txt"
-    data_path.touch()
+    cfg_path = tmp_path / "m.yaml"
+    cfg_path.write_text(yaml.safe_dump({
+        "describe": "x",
+        "states": [{"name": "a", "data": ["foo.txt"]}],
+    }))
 
     runner = CliRunner()
     result = runner.invoke(
-        cm.main,
-        [str(json_path), "--describe", "x", "--data", str(data_path)],
+        cm.main, [str(json_path), "--config", str(cfg_path)]
     )
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
+
+
+def test_cli_rejects_flat_data_in_config(tmp_path: Path) -> None:
+    """Top-level 'data:' in a config is rejected — states-only Mode B."""
+    import yaml
+
+    cfg_path = tmp_path / "m.yaml"
+    cfg_path.write_text(yaml.safe_dump({
+        "describe": "x",
+        "data": ["some_file.txt"],
+    }))
+    runner = CliRunner()
+    result = runner.invoke(cm.main, ["--config", str(cfg_path)])
+    assert result.exit_code != 0
+    assert "unsupported top-level key" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -625,6 +644,48 @@ def test_cli_states_yaml_end_to_end(
     assert (
         "sample_run_b['Cu'].thickness = sample_run_a['Cu'].thickness" in content
     )
+
+
+def test_state_extra_description_in_llm_prompt(tmp_path: Path) -> None:
+    """``extra_description`` is appended to the per-state prompt block."""
+    combined_a = tmp_path / "REFL_111111_combined_data_auto.txt"
+    combined_b = tmp_path / "REFL_222222_combined_data_auto.txt"
+    combined_a.touch()
+    combined_b.touch()
+
+    states = mg.build_state_specs([
+        {
+            "name": "D2O",
+            "data": [combined_a.name],
+            "extra_description": "ambient is D2O (SLD ~6.4)",
+        },
+        {
+            "name": "H2O",
+            "data": [combined_b.name],
+            "extra_description": "ambient is H2O (SLD ~-0.56)",
+        },
+    ], base_dir=tmp_path)
+
+    assert states[0].extra_description == "ambient is D2O (SLD ~6.4)"
+    assert states[1].extra_description == "ambient is H2O (SLD ~-0.56)"
+
+    messages = mg.build_states_llm_prompt("Cu / Ti on Si", states)
+    user_msg = next(m["content"] for m in messages if m["role"] == "user")
+    assert "ambient is D2O (SLD ~6.4)" in user_msg
+    assert "ambient is H2O (SLD ~-0.56)" in user_msg
+
+
+def test_state_extra_description_must_be_string(tmp_path: Path) -> None:
+    combined = tmp_path / "REFL_111111_combined_data_auto.txt"
+    combined.touch()
+    with pytest.raises(ValueError, match="extra_description"):
+        mg.build_state_specs([
+            {
+                "name": "x",
+                "data": [combined.name],
+                "extra_description": 42,
+            }
+        ], base_dir=tmp_path)
 
 
 def test_back_reflection_per_state(

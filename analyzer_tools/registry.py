@@ -36,11 +36,11 @@ TOOLS = {
     "run_fit": ToolInfo(
         name="Reflectivity Fit Runner",
         module="analyzer_tools.analysis.run_fit",
-        description="Run reflectivity fits on combined data using specified models. Performs least-squares fitting and generates fit reports with uncertainty analysis.",
-        usage="run-fit <data_id> <model_name>",
+        description="Run a reflectivity fit on a complete refl1d-ready Python script (e.g. one produced by create-model). The script must define a module-level `problem = FitProblem(...)` and load its own data. Results are written to <results-dir>/<name> and an assessment is written to <reports-dir>.",
+        usage="run-fit SCRIPT [--results-dir DIR] [--reports-dir DIR] [--name NAME] [--fit FITTER] [--samples N] [--burn N] [--no-assess]",
         examples=[
-            "run-fit 218281 cu_thf",
-            "run-fit 218328 cu_thf_temp"
+            "run-fit Models/cu_thf.py",
+            "run-fit Models/corefine-226667-226670.py --fit dream --samples 20000",
         ],
         data_type="combined"
     ),
@@ -48,11 +48,11 @@ TOOLS = {
     "result_assessor": ToolInfo(
         name="Fit Result Assessor",
         module="analyzer_tools.analysis.result_assessor",
-        description="Assess quality of fitting results by analyzing chi-squared values, parameter uncertainties, and generating comparison plots.",
-        usage="assess-result <data_id> <model_name>",
+        description="Assess a refl1d fit output directory: overlay all reflectivity curves, plot every distinct SLD profile with 90%% CL bands, parse parameters/uncertainties, and write a markdown report. The directory's basename is used as the report tag (e.g. results/cu_thf → report_cu_thf.md). Optionally appends an AuRE LLM evaluation.",
+        usage="assess-result <results_dir> [--output-dir DIR] [--context TEXT | --sample-description FILE] [--skip-aure-eval]",
         examples=[
-            "assess-result 218281 cu_thf",
-            "assess-result 218328 cu_thf_temp"
+            "assess-result results/cu_thf",
+            "assess-result results/Cu-D2O-corefine-226642-226652-parts --skip-aure-eval",
         ],
         data_type="combined"
     ),
@@ -60,13 +60,12 @@ TOOLS = {
     "create_model_script": ToolInfo(
         name="Model Script Creator",
         module="analyzer_tools.analysis.create_model",
-        description="Generate an analyzer-convention refl1d model script. Mode A converts an existing AuRE problem JSON (ModelDefinition or bumps-draft-03). Mode B generates a script directly via LLM from a natural-language sample description and one or more REF_L data files; it auto-detects case 1 (one combined file, QProbe), case 2 (multiple partial files, make_probe), or case 3 (multiple combined files co-refined with shared structural parameters — not supported by AuRE). Either mode also accepts --config FILE (YAML/JSON) to supply the flags.",
-        usage="create-model [SOURCE.json | --describe TEXT --data FILE [--data FILE ...]] [--out models/<name>.py] [--model-name NAME] [--config FILE]",
+        description="Generate an analyzer-convention refl1d model script. Mode A converts an existing AuRE problem JSON (ModelDefinition or bumps-draft-03). Mode B is driven by a YAML/JSON config file (--config) with a top-level 'states:' list; each state groups data files that share one physical sample, auto-detecting per-state whether the data is one combined file (QProbe) or N partials of one set_id (make_probe per segment with one shared Sample). Structural parameters are tied across states via shared_parameters / unshared_parameters. To create many models in one shot, drive create-model from analyzer-batch.",
+        usage="create-model [SOURCE.json | --config FILE.yaml] [--out models/<name>.py] [--model-name NAME]",
         examples=[
             "create-model path/to/problem.json --out models/cu_thf.py",
-            "create-model --describe 'Cu/Ti on Si in D2O' --data data/REFL_218281_combined_data_auto.txt --out models/cu_thf.py",
-            "create-model --describe '2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O' --data REFL_226642_combined_data_auto.txt --data REFL_226652_combined_data_auto.txt --out models/corefine.py",
             "create-model --config model-creation.yaml",
+            "create-model --config model-creation.yaml --out models/corefine.py --model-name corefine",
         ],
         data_type="combined"
     ),
@@ -113,12 +112,12 @@ TOOLS = {
     "analyze_sample": ToolInfo(
         name="Sample Pipeline Orchestrator",
         module="analyzer_tools.pipeline",
-        description="End-to-end pipeline for one sample: partial assessment → reduction-issue gate → AuRE model generation → AuRE fit → result assessment + AuRE evaluation. Emits a reduction_batch.yaml manifest when re-reduction is required, but never re-runs reduction automatically.",
-        usage="analyze-sample <sample.md|set_id> [--dry-run] [--no-reduction-gate]",
+        description="End-to-end pipeline for one sample: partial assessment → reduction-issue gate → create-model → run-fit (with assess-result) → optional AuRE evaluation. Takes a YAML config file in the same shape as `create-model --config` (see skills/create-model). Emits a reduction_batch.yaml manifest when re-reduction is required, but never re-runs reduction automatically.",
+        usage="analyze-sample <config.yaml> [--dry-run] [--no-reduction-gate] [--skip-aure-eval]",
         examples=[
-            "analyze-sample sample_218281.md",
-            "analyze-sample 218281 --dry-run",
-            "analyze-sample sample_218281.md --skip-aure-eval"
+            "analyze-sample sample_218281.yaml",
+            "analyze-sample sample_218281.yaml --dry-run",
+            "analyze-sample sample_218281.yaml --skip-aure-eval",
         ],
         data_type="both"
     ),
@@ -166,8 +165,8 @@ WORKFLOWS = {
         "name": "End-to-end Sample Pipeline",
         "description": "Single-command pipeline from partial data to final report with reduction-issue gate.",
         "steps": [
-            "1. Write a sample_<id>.md with YAML frontmatter describing the sample",
-            "2. Run analyze-sample sample_<id>.md",
+            "1. Write a sample_<id>.yaml using the create-model `--config` schema (states list, describe, model_name, ...)",
+            "2. Run analyze-sample sample_<id>.yaml",
             "3. If status is needs-reprocessing, edit and run reduction_batch.yaml with analyzer-batch, then re-run analyze-sample"
         ],
         "tools": ["analyze_sample"]

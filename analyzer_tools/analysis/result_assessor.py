@@ -79,32 +79,43 @@ def get_sld_contour(
     return contours
 
 
-def assess_result(directory, set_id, model_name, reports_dir):
+def assess_result(directory, reports_dir):
     """
     Reads the *-refl.dat file, plots the data, and updates the report.
+
+    The report tag is derived from the basename of *directory*. Generated
+    files use this tag, e.g. ``report_<tag>.md``,
+    ``fit_result_<tag>_reflectivity.svg``, ``fit_result_<tag>_profile.svg``,
+    ``sld_uncertainty_<tag>.txt``.
+
     Parameters
     ----------
     directory : str
         The directory containing the fit results.
-    set_id : str
-        The set ID of the data.
-    model_name : str
-        The name of the model used for the fit.
     reports_dir : str
         The directory where reports are saved.
     """
-    # Find the data file
-    data_files = glob.glob(os.path.join(directory, "*-refl.dat"))
-    if not data_files:
+    tag = os.path.basename(os.path.normpath(directory))
+    # Find reflectivity data files. Multi-experiment fits (co-refines, partial
+    # data sets) emit ``problem-1-refl.dat`` … ``problem-N-refl.dat``; older
+    # single-experiment fits emit a single ``*-refl.dat``.
+    refl_files = sorted(glob.glob(os.path.join(directory, "problem-*-refl.dat")))
+    if not refl_files:
+        refl_files = sorted(glob.glob(os.path.join(directory, "*-refl.dat")))
+    if not refl_files:
         print(f"Error: No *-refl.dat file found in {directory}.")
         return
-    data_file = data_files[0]
 
-    # Read the data, skipping the header
-    data = np.loadtxt(data_file).T
-
-    # Calculate chi-squared
-    chisq = np.mean((data[2] - data[4]) ** 2 / data[3] ** 2)
+    # Concatenate all data sets to compute an overall chi-squared estimate.
+    all_data = [np.loadtxt(f).T for f in refl_files]
+    data = all_data[0]  # backwards-compat: parameter table sees the first set
+    chisq_pieces = [
+        ((d[2] - d[4]) ** 2 / d[3] ** 2) for d in all_data if d.shape[0] >= 5
+    ]
+    if chisq_pieces:
+        chisq = float(np.mean(np.concatenate(chisq_pieces)))
+    else:
+        chisq = float("nan")
 
     # Read detailed fit results from parameter, JSON error, and experiment files
     par_file = os.path.join(directory, "problem.par")
@@ -170,88 +181,131 @@ def assess_result(directory, set_id, model_name, reports_dir):
                         fit_quality["chisq_unc"] = chisq_unc
                     break
 
-    # Create the plot
+    # Create the reflectivity plot — overlay every experiment in the fit.
     fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
     plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
 
-    plt.errorbar(data[0], data[2], yerr=data[3], fmt=".", label="Data")
-    plt.plot(data[0], data[4], label="Fit")
+    single = len(all_data) == 1
+    for i, (rfile, d) in enumerate(zip(refl_files, all_data), start=1):
+        label_data = "Data" if single else f"Data {i}"
+        label_fit = "Fit" if single else f"Fit {i}"
+        line = plt.errorbar(d[0], d[2], yerr=d[3], fmt=".", label=label_data)
+        color = line.lines[0].get_color() if hasattr(line, "lines") else None
+        if d.shape[0] >= 5:
+            plt.plot(d[0], d[4], label=label_fit, color=color)
     plt.xlabel("Q (1/A)", fontsize=15)
     plt.ylabel("Reflectivity", fontsize=15)
     plt.xscale("log")
     plt.yscale("log")
-    plt.legend(frameon=False)
+    plt.legend(frameon=False, fontsize=8 if not single else 10)
 
     if not os.path.exists(reports_dir):
         os.makedirs(reports_dir)
-    image_filename = f"fit_result_{set_id}_{model_name}_reflectivity.svg"
+    image_filename = f"fit_result_{tag}_reflectivity.svg"
     image_path = os.path.join(reports_dir, image_filename)
     plt.savefig(image_path, format="svg")
     print(f"Plot saved to {image_path}")
 
-    # Plot the SLD profile with uncertainty bands
+    # Plot the SLD profile(s) with uncertainty bands. Co-refined fits share
+    # one Sample object across several Experiments, so multiple profile files
+    # may be byte-identical — dedupe by fingerprinting the rho column.
     fig, ax = plt.subplots(dpi=150, figsize=(6, 4))
     plt.subplots_adjust(left=0.15, right=0.95, top=0.95, bottom=0.15)
 
-    profile_file = os.path.join(directory, "problem-1-profile.dat")
-    summary_plots.plot_sld(profile_file, set_id, show_cl=True, z_offset=0.0)
+    profile_files = sorted(glob.glob(os.path.join(directory, "problem-*-profile.dat")))
+    if not profile_files:
+        # Fall back to the legacy single-profile name.
+        profile_files = [os.path.join(directory, "problem-1-profile.dat")]
+
+    seen_fingerprints: set = set()
+    unique_profiles: List[tuple] = []  # list of (idx, profile_path)
+    for pfile in profile_files:
+        if not os.path.exists(pfile):
+            continue
+        try:
+            arr = np.loadtxt(pfile)
+            fp = hash(np.round(arr[:, 1], 4).tobytes()) if arr.ndim == 2 and arr.shape[1] >= 2 else hash(arr.tobytes())
+        except Exception:
+            fp = pfile  # fall back to per-file uniqueness
+        if fp in seen_fingerprints:
+            continue
+        seen_fingerprints.add(fp)
+        m = re.search(r"problem-(\d+)-profile\.dat$", pfile)
+        idx = int(m.group(1)) if m else len(unique_profiles) + 1
+        unique_profiles.append((idx, pfile))
+
+    multi_state = len(unique_profiles) > 1
+
+    # Try to load the dream state once for CL bands; reuse across experiments.
+    dream_state = None
+    state_root = os.path.join(directory, "problem")
+    try:
+        dream_state = dream.state.load_state(state_root)
+    except Exception as exc:  # pragma: no cover - depends on bumps state files
+        print(f"Could not load DREAM state for SLD bands: {exc}")
+
+    sld_txt_filename = f"sld_uncertainty_{tag}.txt"
+    sld_txt_path = os.path.join(reports_dir, sld_txt_filename)
+    if not os.path.exists(reports_dir):
+        os.makedirs(reports_dir)
+    sld_txt_handle = open(sld_txt_path, "w")
+    sld_txt_handle.write("# state \t z \t best \t low (90% CL)\t high (90% CL)\n")
+
+    for state_num, (idx, pfile) in enumerate(unique_profiles, start=1):
+        label = f"State {state_num}" if multi_state else "SLD best"
+        # Best-curve line (no CL band) — provided by summary_plots.plot_sld.
+        summary_plots.plot_sld(pfile, label, show_cl=False, z_offset=0.0)
+
+        # Confidence-limit band, if we can build the experiment + state.
+        expt_json = os.path.join(directory, f"problem-{idx}-expt.json")
+        if dream_state is None or not os.path.exists(expt_json):
+            continue
+        try:
+            experiment = load_expt_json(expt_json)
+            problem = FitProblem(experiment)
+            contours = get_sld_contour(problem, dream_state, cl=90, align=-1)
+            if not contours:
+                continue
+            z, best, low, high = contours[0]
+
+            start_idx = len(best) - 1
+            for k in range(len(best) - 1, 0, -1):
+                if np.fabs(best[k] - best[k - 1]) > 0.001:
+                    start_idx = k
+                    break
+            shifted_z = z[start_idx] - z
+            color = plt.gca().lines[-1].get_color()
+            plt.fill_between(
+                shifted_z[:start_idx],
+                low[:start_idx],
+                high[:start_idx],
+                alpha=0.2,
+                color=color,
+            )
+            for zi, bi, lo, hi in zip(
+                shifted_z[:start_idx], best[:start_idx], low[:start_idx], high[:start_idx]
+            ):
+                sld_txt_handle.write(f"{state_num} {zi:.6f} {bi:.6f} {lo:.6f} {hi:.6f}\n")
+        except Exception as exc:
+            print(f"Could not plot SLD uncertainty band for state {state_num}: {exc}")
+
+    sld_txt_handle.close()
+    print(f"SLD uncertainty bands saved to {sld_txt_path}")
+
     plt.xlabel("z ($\\AA$)", fontsize=15)
     plt.ylabel("SLD ($10^{-6}/{\\AA}^2$)", fontsize=15)
+    ax.legend()
 
-    # Add SLD uncertainty band using get_sld_contour
-    expt_json_file = os.path.join(directory, "problem-1-expt.json")
-    label = "SLD best"
-    linewidth = 2
-    z_offset = 0.0
-    try:
-        experiment = load_expt_json(expt_json_file)
-        problem = FitProblem(experiment)
-        model_path = profile_file.replace("-1-profile.dat", "")
-        state = dream.state.load_state(model_path)
-        z, best, low, high = get_sld_contour(problem, state, cl=90, align=-1)[0]
-
-        # Find the starting point of the distribution
-        start_idx = 0
-        for start_idx in range(len(best) - 1, 0, -1):
-            if np.fabs(best[start_idx] - best[start_idx - 1]) > 0.001:
-                break
-
-        # Calculate the shifted z values for plotting, aligning the profile to the offset.
-        # This shifts the z array so that z[start_idx] becomes the new zero (plus z_offset).
-        shifted_z = z - z[start_idx] + z_offset
-        plt.plot(
-            shifted_z[:start_idx], best[:start_idx], markersize=4, label=label, linewidth=linewidth
-        )
-        plt.fill_between(
-            shifted_z[:start_idx],
-            low[:start_idx],
-            high[:start_idx],
-            alpha=0.2,
-            color=plt.gca().lines[-1].get_color(),
-        )
-        ax.legend()
-
-        # Write SLD uncertainty bands to a text file
-        sld_txt_filename = f"sld_uncertainty_{set_id}_{model_name}.txt"
-        sld_txt_path = os.path.join(reports_dir, sld_txt_filename)
-        with open(sld_txt_path, "w") as f:
-            f.write("# z \t best \t low (90% CL)\t high (90% CL)\n")
-            for zi, bi, lo, hi in zip(shifted_z[:start_idx], best[:start_idx], low[:start_idx], high[:start_idx]):
-                f.write(f"{zi:.6f} {bi:.6f} {lo:.6f} {hi:.6f}\n")
-        print(f"SLD uncertainty bands saved to {sld_txt_path}")
-    except Exception as e:
-        print(f"Could not plot SLD uncertainty band: {e}")
-
-    image_filename = f"fit_result_{set_id}_{model_name}_profile.svg"
+    image_filename = f"fit_result_{tag}_profile.svg"
     sld_image_path = os.path.join(reports_dir, image_filename)
 
     plt.savefig(sld_image_path, format="svg")
     print(f"Plot saved to {sld_image_path}")
 
     # Update the report
-    report_file = os.path.join(reports_dir, f"report_{set_id}.md")
+    report_file = os.path.join(reports_dir, f"report_{tag}.md")
 
-    new_section_header = f"## Fit results for {model_name}"
+    new_section_header = "## Fit results"
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Format fit quality information
@@ -391,7 +445,7 @@ def assess_result(directory, set_id, model_name, reports_dir):
             f.write(content)
     else:
         with open(report_file, "w") as f:
-            f.write(f"# Report for Set {set_id}\n\n{new_content}")
+            f.write(f"# Report for {tag}\n\n{new_content}")
 
     print(f"Report {report_file} updated.")
 
@@ -526,8 +580,6 @@ def append_aure_section_to_report(report_path: str, evaluation: Dict[str, Any]) 
 
 @click.command()
 @click.argument("directory", type=click.Path(exists=True, file_okay=False))
-@click.argument("set_id", type=str)
-@click.argument("model_name", type=str)
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False),
@@ -568,8 +620,6 @@ def append_aure_section_to_report(report_path: str, evaluation: Dict[str, Any]) 
 )
 def main(
     directory: str,
-    set_id: str,
-    model_name: str,
     output_dir: Optional[str],
     skip_aure_eval: bool,
     context: Optional[str],
@@ -579,22 +629,22 @@ def main(
 ):
     """
     Assess the result of a reflectivity fit.
-    
-    DIRECTORY: Directory containing the fit results.
-    
-    SET_ID: The set ID of the data.
-    
-    MODEL_NAME: Name of the model used for the fit.
+
+    DIRECTORY: Directory containing the fit results. The directory's
+    basename is used as the report tag (e.g. ``results/cu_thf`` →
+    ``report_cu_thf.md``).
     """
     config = get_config()
 
     if output_dir is None:
         output_dir = config.get_reports_dir()
-    
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    assess_result(directory, set_id, model_name, output_dir)
+    tag = os.path.basename(os.path.normpath(directory))
+
+    assess_result(directory, output_dir)
 
     evaluation: Optional[Dict[str, Any]] = None
     if not skip_aure_eval:
@@ -605,17 +655,16 @@ def main(
             hypothesis=hypothesis,
         )
         if evaluation is not None:
-            report_path = os.path.join(output_dir, f"report_{set_id}.md")
+            report_path = os.path.join(output_dir, f"report_{tag}.md")
             append_aure_section_to_report(report_path, evaluation)
 
     if as_json:
         click.echo(
             json.dumps(
                 {
-                    "set_id": set_id,
-                    "model_name": model_name,
+                    "tag": tag,
                     "results_dir": os.path.abspath(directory),
-                    "report": os.path.join(output_dir, f"report_{set_id}.md"),
+                    "report": os.path.join(output_dir, f"report_{tag}.md"),
                     "aure_evaluation": evaluation,
                 },
                 indent=2,
