@@ -149,6 +149,12 @@ create-model --config model-creation.yaml
 - `shared_parameters` and `unshared_parameters` are mutually exclusive.
   When neither is set, a sensible default (every layer.thickness,
   layer.material.rho, layer.interface, plus substrate.interface) is shared.
+- Layer prefixes in `shared_parameters` / `unshared_parameters` (e.g. the
+  `Cu` in `Cu.thickness`) are forwarded to the LLM as **required layer
+  names** so the generated model uses the exact spelling and case you
+  wrote. If a path's prefix doesn't match any layer the LLM produced (or
+  the substrate name), `create-model` aborts with a clear error rather
+  than emitting a script that crashes at fit time.
 
 ## Batch use across many samples
 
@@ -452,6 +458,9 @@ Rules for the states form:
 - `shared_parameters` and `unshared_parameters` are mutually exclusive.
   When neither is set, a sensible default (every layer.thickness,
   layer.material.rho, layer.interface, plus substrate.interface) is shared.
+- Layer prefixes in `shared_parameters` / `unshared_parameters` are
+  forwarded to the LLM as required layer names — the generated stack must
+  use exactly those names. A mismatch aborts `create-model` cleanly.
 - `states:` may not be combined with top-level `data:` / `source:`. In a
   `jobs:` list, each job picks exactly one shape.
 

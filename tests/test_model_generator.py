@@ -904,3 +904,64 @@ def test_cli_states_rejects_shared_and_unshared(tmp_path: Path) -> None:
     result = runner.invoke(cm.main, ["--config", str(cfg_path)])
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
+
+
+# ── Layer-name validation for shared/unshared lists ───────────────
+
+
+def test_resolve_shared_parameters_rejects_unknown_layer(
+    model_spec: mg.ModelSpec,
+) -> None:
+    """A shared_parameters list referencing a layer the LLM didn't pick raises."""
+    with pytest.raises(ValueError, match="layer prefix"):
+        mg.resolve_shared_parameters(
+            model_spec, shared=["Copper.thickness"]
+        )
+
+
+def test_resolve_unshared_parameters_rejects_unknown_layer(
+    model_spec: mg.ModelSpec,
+) -> None:
+    with pytest.raises(ValueError, match="layer prefix"):
+        mg.resolve_shared_parameters(
+            model_spec, unshared=["Copper.thickness"]
+        )
+
+
+def test_resolve_shared_parameters_accepts_substrate(
+    model_spec: mg.ModelSpec,
+) -> None:
+    """Substrate.interface is a valid shared path (it's the substrate's name)."""
+    out = mg.resolve_shared_parameters(
+        model_spec, shared=[f"{model_spec.substrate.name}.interface"]
+    )
+    assert out == [f"{model_spec.substrate.name}.interface"]
+
+
+def test_layer_names_in_paths_extracts_unique_prefixes() -> None:
+    out = mg._layer_names_in_paths([
+        "Cu.thickness", "Cu.material.rho", "Ti.interface", "garbage",
+    ])
+    assert out == ["Cu", "Ti"]
+
+
+def test_build_states_llm_prompt_injects_required_names(tmp_path: Path) -> None:
+    partials = _list_sample_partials()
+    states = mg.build_state_specs(
+        [{"name": "a", "data": [str(p) for p in partials]}]
+    )
+    msgs = mg.build_states_llm_prompt(
+        "desc", states, required_layer_names=["Cu", "Ti"]
+    )
+    user = msgs[-1]["content"]
+    assert "REQUIRED LAYER NAMES" in user
+    assert "'Cu'" in user and "'Ti'" in user
+
+
+def test_build_states_llm_prompt_no_constraint_when_none(tmp_path: Path) -> None:
+    partials = _list_sample_partials()
+    states = mg.build_state_specs(
+        [{"name": "a", "data": [str(p) for p in partials]}]
+    )
+    msgs = mg.build_states_llm_prompt("desc", states)
+    assert "REQUIRED LAYER NAMES" not in msgs[-1]["content"]

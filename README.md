@@ -110,6 +110,130 @@ sub-folders without becoming the project root itself.
 See [docs/configuration.md](docs/configuration.md) for the full
 `.env`-cascade rules and variable reference.
 
+## Batch processing
+
+`analyzer-batch` runs many analyzer-tool invocations from a single YAML
+manifest. The manifest is pure orchestration — each `job` dispatches to
+one of the CLI tools (`create-model`, `run-fit`, `assess-result`,
+`theta-offset`, …) using the same flags you'd type by hand.
+
+### Manifest shape
+
+```yaml
+# Optional top-level keys
+data_location: ./rawdata     # prepended to bare data filenames in args
+output_dir:    ./results     # injected as --output-dir on every job
+theta_offset:  -0.005        # injected as --theta-offset (when not already set)
+
+defaults:
+  output_root: ./output      # each job's outputs written under <output_root>/<name>
+
+jobs:
+  - name: <unique label>     # used for logs and --jobs filter
+    tool: <tool name>        # see analyzer-tools --list-tools
+    args: [<argv …>]         # exactly as on the command line
+```
+
+Run it:
+
+```bash
+analyzer-batch manifest.yaml                 # run everything
+analyzer-batch manifest.yaml --dry-run       # print commands only
+analyzer-batch manifest.yaml --jobs cu_d2o   # run a subset by name
+```
+
+A complete reference manifest covering theta-offset, partial checks, fit
++ assess, and `for_each` expansion lives in
+[manifest.example.yaml](manifest.example.yaml).
+
+### Example: batch many samples through `analyze-sample`
+
+The recommended way to process many samples is to write one YAML per
+sample and dispatch them with `analyzer-batch`. Each per-sample YAML
+uses the **same shape as `create-model --config`** (the `describe:` +
+`states:` form — see
+[skills/create-model/SKILL.md](skills/create-model/SKILL.md)), and each
+`analyze-sample` job runs the full pipeline (partial-data check →
+reduction gate → `create-model` → `run-fit` → `assess-result` →
+optional AuRE evaluation) for that sample.
+
+```yaml
+# samples/cu_thf_218281.yaml
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in 100 mM LiTFSI/THF.
+  Neutrons enter from the silicon side.
+model_name: cu_thf_218281
+out: models/cu_thf_218281.py
+states:
+  - name: state_218281
+    data:
+      - REFL_218281_1_218281_partial.txt
+      - REFL_218281_2_218282_partial.txt
+      - REFL_218281_3_218283_partial.txt
+    theta_offset:      {init: 0.0, min: -0.02, max: 0.02}
+    sample_broadening: true
+shared_parameters:
+  - Cu.thickness
+  - Cu.material.rho
+  - Ti.thickness
+  - Ti.material.rho
+```
+
+```yaml
+# manifest.yaml
+data_location: ./rawdata        # bare REFL_*.txt names resolve here
+
+jobs:
+  - name: pipeline_218281
+    tool: analyze-sample
+    args: [samples/cu_thf_218281.yaml]
+
+  - name: pipeline_218386
+    tool: analyze-sample
+    args: [samples/cu_thf_218386.yaml]
+
+  - name: pipeline_218430
+    tool: analyze-sample
+    args: [samples/cu_thf_218430.yaml, --skip-aure-eval]
+```
+
+```bash
+analyzer-batch manifest.yaml --dry-run                 # verify commands first
+analyzer-batch manifest.yaml                           # run all samples
+analyzer-batch manifest.yaml --jobs pipeline_218281    # run a single one
+```
+
+Each job writes its own `reports/sample_<tag>/` folder. Failures in one
+job don't stop the others, and the run summary at the end reports
+pass/fail counts. If a sample trips the reduction-issue gate, that
+single job halts and emits a `reduction_batch.yaml` for review.
+
+### Going lower-level
+
+`analyze-sample` is one job per sample. When you need finer control —
+e.g. regenerating a model without rerunning the fit, or fitting an
+existing script multiple times with different settings — call the
+underlying tools directly from the manifest:
+
+```yaml
+jobs:
+  - name: build_cu_thf
+    tool: create-model
+    args: [--config, samples/cu_thf_218281.yaml]
+
+  - name: fit_cu_thf
+    tool: run-fit
+    args: [models/cu_thf_218281.py, --name, cu_thf_218281]
+
+  - name: assess_cu_thf
+    tool: assess-result
+    args: [results/cu_thf_218281]
+```
+
+Note that `run-fit` takes a refl1d-ready Python script as its single
+positional argument (typically the file `create-model` produced) and
+that `assess-result` takes the fit-output directory.
+
 ## Documentation
 
 | Topic | Where |
@@ -123,6 +247,7 @@ See [docs/configuration.md](docs/configuration.md) for the full
 | Data layout & file formats | [skills/data-organization/SKILL.md](skills/data-organization/SKILL.md) |
 | Reflectometry primer | [skills/reflectometry-basics/SKILL.md](skills/reflectometry-basics/SKILL.md) |
 | Configuration / `.env` cascade | [docs/configuration.md](docs/configuration.md) |
+| Batch manifests (`analyzer-batch`) | [Batch processing](#batch-processing), [manifest.example.yaml](manifest.example.yaml) |
 | Docker (full stack with Mantid) | [docs/docker.md](docs/docker.md) |
 | Single-file skill summary (for downstream repos) | [skills/distributable/SKILL.md](skills/distributable/SKILL.md) |
 

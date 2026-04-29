@@ -62,18 +62,33 @@ jobs:
       - "218386"
 
   # -- Fit + assess workflow -----------------------------------
+  # `run-fit` takes a refl1d-ready Python script as its single
+  # positional argument (typically produced by `create-model`).
+  # `--name` controls the output subfolder under <results-dir>/<name>
+  # and the report tag; defaults to the script stem when omitted.
   - name: fit_copper
     tool: run-fit
     args:
-      - "218281"
-      - cu_thf
+      - models/cu_thf_218281.py
+      - --name
+      - cu_thf_218281
 
+  # `assess-result` takes the fit-output directory as its single
+  # positional argument. The directory's basename becomes the report
+  # tag, so an explicit name is not needed here.
   - name: assess_copper
     tool: assess-result
     args:
-      - results/218281_cu_thf
-      - "218281"
-      - cu_thf
+      - results/cu_thf_218281
+
+  # -- End-to-end pipeline for a single sample -----------------
+  # `analyze-sample` takes a YAML config (same shape as
+  # `create-model --config`) and runs partial-checks → reduction
+  # gate → create-model → run-fit → assess-result.
+  - name: pipeline_218281
+    tool: analyze-sample
+    args:
+      - samples/cu_thf_218281.yaml
 
   # -- Bulk-process many files with the same options -----------
   # `files:` is a shorthand that expands to one job per filename,
@@ -89,11 +104,13 @@ jobs:
       - REF_L_226644.nxs.h5
 
   # General form: `for_each` works with any single flag.
+  # Here we run the same fit script with several different output
+  # subfolder names by replicating the job once per `--name` value.
   - name: fit_all
     tool: run-fit
     args:
-      - cu_thf
+      - models/cu_thf.py
     for_each:
-      --run:
-        - "218281"
-        - "218386"
+      --name:
+        - cu_thf_218281
+        - cu_thf_218386

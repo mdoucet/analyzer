@@ -43,7 +43,7 @@ TOOL_COMMANDS = {
     "assess-partial":         "analyzer_tools.analysis.partial_data_assessor",
     "assess-result":          "analyzer_tools.analysis.result_assessor",
     "create-model":           "analyzer_tools.analysis.model_from_aure",
-    "eis-intervals":          "analyzer_tools.reduction.event_filter",
+    "eis-intervals":          "analyzer_tools.analysis.eis_interval_extractor",
     "iceberg-packager":       "analyzer_tools.utils.iceberg_packager",
     "theta-offset":           "analyzer_tools.analysis.theta_offset",
     "simple-reduction":       "analyzer_tools.reduction.reduction",

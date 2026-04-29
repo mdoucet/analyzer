@@ -442,6 +442,53 @@ def build_state_specs(
     return specs
 
 
+def _layer_names_in_paths(paths: Sequence[str]) -> List[str]:
+    """Extract unique layer-name prefixes from dotted shared/unshared paths.
+
+    Each path is expected to look like ``<layer>.<attr>`` (e.g.
+    ``Cu.thickness``). Paths that don't parse are skipped — validation
+    happens later in :func:`_validate_shared_paths`.
+    """
+    seen: List[str] = []
+    seen_set: set[str] = set()
+    for path in paths:
+        m = _SHARED_PATH_RE.match(path)
+        if not m:
+            continue
+        layer = m.group("layer")
+        if layer not in seen_set:
+            seen_set.add(layer)
+            seen.append(layer)
+    return seen
+
+
+def _validate_shared_paths(spec: ModelSpec, paths: Sequence[str], *,
+                           field: str) -> None:
+    """Raise ``ValueError`` when any path's layer prefix isn't in *spec*.
+
+    The renderer indexes ``sample[<layer>]`` by exact name, so a mismatch
+    between the YAML's layer prefix (e.g. ``Cu``) and the LLM's chosen
+    layer name (e.g. ``Copper``) would produce a script that crashes at
+    fit time. We catch it here with a clear message instead.
+    """
+    valid = {layer.name for layer in spec.layers}
+    valid.add(spec.substrate.name)
+    bad: List[str] = []
+    for path in paths:
+        m = _SHARED_PATH_RE.match(path)
+        if not m or m.group("layer") not in valid:
+            bad.append(path)
+    if bad:
+        raise ValueError(
+            f"{field}: layer prefix(es) not found in the generated model. "
+            f"Offending entries: {bad}. "
+            f"Available layer/substrate names from the LLM: "
+            f"{sorted(valid)}. "
+            "Either edit your YAML to use the LLM's names, or add the "
+            "intended names to the sample description so the LLM picks them."
+        )
+
+
 def default_shared_parameters(spec: ModelSpec) -> List[str]:
     """Return the default list of dotted paths tied across states.
 
@@ -480,8 +527,10 @@ def resolve_shared_parameters(
             "exclusive; pick one."
         )
     if shared is not None:
+        _validate_shared_paths(spec, shared, field="shared_parameters")
         return list(shared)
     if unshared is not None:
+        _validate_shared_paths(spec, unshared, field="unshared_parameters")
         skip = set(unshared)
         return [p for p in default_shared_parameters(spec) if p not in skip]
     if spec.shared_parameters:
@@ -1239,8 +1288,18 @@ def _state_var(state_name: str) -> str:
 def build_states_llm_prompt(
     description: str,
     states: Sequence[StateSpec],
+    *,
+    required_layer_names: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, str]]:
-    """Build the LLM prompt for the multi-state path."""
+    """Build the LLM prompt for the multi-state path.
+
+    ``required_layer_names`` (when provided) is a list of layer names the
+    user has already referenced in their ``shared_parameters`` /
+    ``unshared_parameters`` YAML. These are passed to the LLM as a hard
+    constraint so the generated layer stack uses the same names — without
+    this, the LLM might pick e.g. ``Copper`` while the YAML says ``Cu``,
+    and the renderer's ``sample['Cu']`` lookup would fail at fit time.
+    """
     blocks: List[str] = []
     for s in states:
         file_lines: List[str] = []
@@ -1262,6 +1321,18 @@ def build_states_llm_prompt(
         "between states, you MAY suggest a default list."
     )
 
+    name_constraint = ""
+    if required_layer_names:
+        names_csv = ", ".join(repr(n) for n in required_layer_names)
+        name_constraint = (
+            "REQUIRED LAYER NAMES: the user has already referenced specific "
+            "layer names in their configuration. Your 'layers' (and the "
+            "substrate when listed) MUST use EXACTLY these names — same "
+            "spelling, same case — so downstream code can index into them: "
+            f"{names_csv}. You may add additional layers with names of your "
+            "choosing, but every name listed here MUST appear.\n\n"
+        )
+
     user = (
         f"Sample description (from the user):\n{description.strip()}\n\n"
         f"This is a MULTI-STATE co-refinement of {len(states)} state(s):\n"
@@ -1269,6 +1340,7 @@ def build_states_llm_prompt(
         "Produce ONE shared layer stack that describes the sample. Each state "
         "gets its own probe(s); structural parameters will be tied across "
         "states by the caller.\n\n"
+        f"{name_constraint}"
         f"{shared_instr}\n\n"
         f"{_JSON_SCHEMA_DESCRIPTION}"
     )
@@ -1527,7 +1599,20 @@ def generate_model_script_from_states(
     """High-level entry point for the multi-state (YAML ``states:``) path."""
     if not states:
         raise ValueError("At least one state is required.")
-    messages = build_states_llm_prompt(description, states)
+    # Collect any layer names referenced in the user's shared/unshared
+    # parameter lists so the LLM is forced to use them (and the renderer's
+    # sample[<name>] lookups resolve correctly).
+    required_names: List[str] = []
+    if shared_parameters:
+        required_names.extend(_layer_names_in_paths(shared_parameters))
+    if unshared_parameters:
+        for name in _layer_names_in_paths(unshared_parameters):
+            if name not in required_names:
+                required_names.append(name)
+    messages = build_states_llm_prompt(
+        description, states,
+        required_layer_names=required_names or None,
+    )
     spec = call_llm_for_model_spec(messages, llm=llm)
     effective = resolve_shared_parameters(
         spec, shared=shared_parameters, unshared=unshared_parameters
