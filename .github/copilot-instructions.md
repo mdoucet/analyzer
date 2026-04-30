@@ -46,6 +46,7 @@ Consult these when you need to understand how to use a tool, what inputs/outputs
 - `skills/time-resolved/` — EIS interval extraction and neutron event reduction
 - `skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
 - `skills/pipeline/` — End-to-end sample pipeline (`analyze-sample`) with reduction-issue gate
+- `skills/plan-data/` — Data arrival planner (`plan-data`): generates job YAMLs when partial files arrive
 - `skills/distributable/` — Single-file summary skill for external users
 
 ### Using skills in another repo

@@ -164,6 +164,12 @@ def check_llm_cli():
     main()
 
 
+def plan_data_cli():
+    """Command-line interface for the data planner."""
+    from .analysis.plan_data import main
+    main()
+
+
 # ============================================================================
 # Main CLI command
 # ============================================================================

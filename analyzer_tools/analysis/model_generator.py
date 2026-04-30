@@ -98,6 +98,38 @@ def detect_case(data_files: Sequence[Path | str]) -> str:
     return CASE_2
 
 
+def _resolve_data_path_from_env(path: Path) -> Optional[Path]:
+    """Try to locate *path* in the analyzer-configured data directories.
+
+    Looks under ``ANALYZER_PARTIAL_DATA_DIR`` and
+    ``ANALYZER_COMBINED_DATA_DIR`` (via :class:`Config`). Both the raw
+    relative path and its basename are tried, so ``Rawdata/foo_partial.txt``
+    will resolve to ``$ANALYZER_PARTIAL_DATA_DIR/foo_partial.txt`` when the
+    Rawdata sub-folder is not present at the search root.
+    Returns the first existing file, or ``None``.
+    """
+    try:
+        from analyzer_tools.config_utils import get_config
+        cfg = get_config()
+        candidates_roots = [
+            cfg.get_partial_data_dir(),
+            cfg.get_combined_data_dir(),
+        ]
+    except Exception:
+        return None
+
+    rel_variants = [path, Path(path.name)]
+    for root in candidates_roots:
+        if not root:
+            continue
+        root_path = Path(root)
+        for rel in rel_variants:
+            candidate = root_path / rel
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 # ---------------------------------------------------------------------------
 # REF_L header parsing
 # ---------------------------------------------------------------------------
@@ -352,7 +384,15 @@ def build_state_specs(
         for f in raw_files:
             p = Path(f)
             if not p.is_absolute() and base_dir is not None:
-                p = base_dir / p
+                candidate = base_dir / p
+                # Fall back to the analyzer-configured data directories
+                # (ANALYZER_PARTIAL_DATA_DIR / ANALYZER_COMBINED_DATA_DIR)
+                # when the relative path doesn't resolve against base_dir.
+                if not candidate.is_file():
+                    fallback = _resolve_data_path_from_env(p)
+                    if fallback is not None:
+                        candidate = fallback
+                p = candidate
             paths.append(p)
 
         kinds = {_classify_file(p)[0] for p in paths}

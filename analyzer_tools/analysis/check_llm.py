@@ -69,9 +69,18 @@ def run_aure_check_llm(
     if not test_connection:
         cmd.append("--no-test")
 
-    # Merge .env values into the subprocess environment so that aure picks up
-    # LLM_BASE_URL, LLM_MODEL, etc. even when they are not exported in the shell.
-    env = {**os.environ, **dotenv_values(".env")}
+    # Build the subprocess environment using the analyzer's full .env
+    # cascade (project .env walking up from CWD, then ~/.config/analyzer/.env)
+    # so that aure picks up LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, etc. even
+    # when they are not exported in the shell. Process environment wins
+    # (matches override=False in config_utils._load_env).
+    from analyzer_tools.config_utils import _candidate_env_paths
+
+    env = dict(os.environ)
+    for path in _candidate_env_paths(None):
+        for key, value in dotenv_values(str(path)).items():
+            if value is not None and key not in env:
+                env[key] = value
 
     try:
         completed = subprocess.run(
