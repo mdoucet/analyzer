@@ -179,21 +179,23 @@ been removed.)
 
 ### Data arrival planning
 
-#### `plan-data` — Generate a job YAML when a new partial file arrives
+#### `plan-data` — Generate a config YAML when a new partial file arrives
 
 ```bash
-plan-data DATA_FILE CONTEXT_FILE --output-dir DIR [--sequence-total N] [--no-llm]
+plan-data DATA_FILE CONTEXT_FILE --output-dir DIR [--sequence-total N]
 ```
 
-Called once per arriving partial file.  Reads `sequence_id` and
+Called once per arriving partial file. Reads `sequence_id` and
 `sequence_number` from the file's `Meta:` JSON header (falling back to
 filename parsing), scans the same directory for sibling parts, and writes
-`job_<sequence_id>.yaml` to `OUTPUT_DIR`.
+`job_<sequence_id>.yaml` to `OUTPUT_DIR`. The output conforms to the
+`create-model --config` / `analyze-sample` schema, with job-control
+flags inside a `metadata` block that those tools ignore.
 
 | Field | Set when |
 |---|---|
-| `perform_assembly: true` | current file is the last part (`sequence_number == sequence_total`) **and** all other parts are present |
-| `create_model:` block | `perform_assembly` is `true` **and** an LLM is available **and** the context file is sufficient |
+| `metadata.perform_assembly: true` | current file is the last part (`sequence_number == sequence_total`) **and** all other parts are present |
+| Top-level `describe` / `states` / `model_name` | `perform_assembly` is `true` **and** an LLM is available **and** the context file is sufficient |
 | `metadata.notes` | always — summary of sequence status and LLM verdict |
 
 **Arguments**
@@ -204,40 +206,40 @@ filename parsing), scans the same directory for sibling parts, and writes
 | `CONTEXT_FILE` | Scientist's Markdown context note (semi-structured) |
 | `--output-dir DIR` | Directory for the output YAML (**required**) |
 | `--sequence-total N` | Expected number of parts in a complete sequence (default `3`) |
-| `--no-llm` | Skip the LLM assessment even if an LLM is configured |
+| `--skill NAME` | Skill to load (repeatable) |
 
 **Context file** (`context-sample5.md`) is a free-form Markdown file describing
 the sample stack, ambient medium, and any fitting approach notes. The richer
-the description, the better the drafted `create_model` block.
+the description, the better the drafted create-model fields.
 
 **Output YAML shape** (`job_<sequence_id>.yaml`):
 
 ```yaml
-perform_analysis: true
-perform_assembly: true          # or false
-
-# Present only when perform_assembly=true and context is sufficient:
-create_model:
-  describe: |
-    2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
-    Neutrons enter from the silicon side.
-  states:
-    - name: run_226642
-      data:
-        - REFL_226642_1_226642_partial.txt
-        - REFL_226642_2_226643_partial.txt
-        - REFL_226642_3_226644_partial.txt
-      theta_offset: {init: 0.0, min: -0.02, max: 0.02}
-      sample_broadening: true
-  model_name: Cu-D2O-226642
+# create-model schema fields at the top level — present only when
+# metadata.perform_assembly=true and context is sufficient:
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
+  Neutrons enter from the silicon side.
+states:
+  - name: run_226642
+    data:
+      - REFL_226642_1_226642_partial.txt
+      - REFL_226642_2_226643_partial.txt
+      - REFL_226642_3_226644_partial.txt
+    theta_offset: {init: 0.0, min: -0.02, max: 0.02}
+    sample_broadening: true
+model_name: Cu-D2O-226642
 
 metadata:
+  perform_assembly: true          # or false
   notes: |
     Sequence 226642 is complete (3 parts present).  <LLM summary…>
 ```
 
-The `create_model` block can be passed directly to `create-model --config`
-or used as input to `analyze-sample` once the sequence is assembled.
+The YAML can be passed directly to `create-model --config` or
+`analyze-sample` (both ignore the `metadata` block). A scheduler
+that consumes the file should branch on `metadata.perform_assembly`
+and on the presence of `states` before invoking either CLI.
 
 ### Partial data
 

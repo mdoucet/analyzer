@@ -1,15 +1,17 @@
 ---
 name: plan-data
 description: >
-  Generate a job YAML for a newly arriving partial reflectometry data file.
-  The planner reads sequence_id / sequence_number from the file header or
-  filename, scans the same directory for sibling parts, and — when the
-  sequence is complete — uses an LLM to draft the create_model section from
-  a scientist's Markdown context file.
-  USE FOR: automating job-YAML creation the moment a new partial data file
-  arrives at the instrument.
+  Generate a config YAML for a newly arriving partial reflectometry data
+  file. The planner reads sequence_id / sequence_number from the file
+  header or filename, scans the same directory for sibling parts, and —
+  when the sequence is complete — uses an LLM to draft the create-model
+  fields from a scientist's Markdown context file. The output YAML is
+  directly consumable by `create-model --config` and `analyze-sample`;
+  job-control flags live in a `metadata` block that those tools ignore.
+  USE FOR: automating config-YAML creation the moment a new partial
+  data file arrives at the instrument.
   DO NOT USE FOR: running fits, assessing results, or assembling combined
-  curves (those steps follow from the generated job YAML).
+  curves (those steps follow from the generated config YAML).
 ---
 
 # Skill: Data arrival planner (`plan-data`)
@@ -18,7 +20,9 @@ description: >
 
 Every time a new partial data file (`REFL_{seq_id}_{seq_num}_{run_id}_partial.txt`)
 arrives, `plan-data` decides whether the sequence is complete and produces a
-**job YAML** that downstream tools (or a human) can act on.
+**config YAML** that downstream tools (or a human) can act on. The output
+file conforms to the `create-model --config` / `analyze-sample` schema, so
+it can be passed straight to those CLIs.
 
 ```bash
 plan-data DATA_FILE CONTEXT_FILE --output-dir DIR [--sequence-total N]
@@ -33,61 +37,62 @@ plan-data DATA_FILE CONTEXT_FILE --output-dir DIR [--sequence-total N]
 
 ## Assembly decision
 
-`perform_assembly: true` is set **only** when **both** conditions hold:
+`metadata.perform_assembly: true` is set **only** when **both** conditions hold:
 
 - `sequence_number == sequence_total` (this is the last expected part), **and**
 - all parts `1 … sequence_total` are found in the same directory as the input
   file.
 
-If either condition fails, `perform_assembly: false` is emitted and no
-`create_model` block is generated.
+If either condition fails, `metadata.perform_assembly: false` is emitted and
+no create-model fields are generated.
 
-## LLM-drafted `create_model` section
+## LLM-drafted create-model fields
 
 When `perform_assembly` is true, the planner calls the configured LLM
 (via `aure.llm`) to:
 
 1. Assess whether the context file contains enough sample information to
    build a refl1d model.
-2. If yes, draft a `create_model` YAML block with:
+2. If yes, populate the create-model schema **at the top level of the
+   config**:
    - `describe`: sample description extracted/condensed from the context.
    - `states`: one state for the current sequence with `data:` file list,
      `theta_offset`, and `sample_broadening` flags.
    - `model_name`: short identifier.
 
 If the LLM is not configured (`check-llm` returns an error) or judges the
-context insufficient, the `create_model` key is omitted and a note is added
-to `metadata.notes`.
-
-Use `--no-llm` to skip LLM assessment entirely.
+context insufficient, the create-model fields are omitted and a note is
+added to `metadata.notes`.
 
 ## Output
 
 Written to `OUTPUT_DIR/job_<sequence_id>.yaml`:
 
 ```yaml
-perform_analysis: true
-perform_assembly: true   # or false
-
-# Only present when perform_assembly=true and context is sufficient:
-create_model:
-  describe: |
-    2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
-    Neutrons enter from the silicon side.
-  states:
-    - name: run_226642
-      data:
-        - REFL_226642_1_226642_partial.txt
-        - REFL_226642_2_226643_partial.txt
-        - REFL_226642_3_226644_partial.txt
-      theta_offset: {init: 0.0, min: -0.02, max: 0.02}
-      sample_broadening: true
-  model_name: Cu-D2O-226642
+# create-model schema fields at the top level — present only when
+# metadata.perform_assembly=true and the context is sufficient:
+describe: |
+  2 nm CuOx / 50 nm Cu / 3 nm Ti on Si in D2O (SLD ~6).
+  Neutrons enter from the silicon side.
+states:
+  - name: run_226642
+    data:
+      - REFL_226642_1_226642_partial.txt
+      - REFL_226642_2_226643_partial.txt
+      - REFL_226642_3_226644_partial.txt
+    theta_offset: {init: 0.0, min: -0.02, max: 0.02}
+    sample_broadening: true
+model_name: Cu-D2O-226642
 
 metadata:
+  perform_assembly: true   # or false
   notes: |
     Sequence 226642 is complete (3 parts present). <LLM summary…>
 ```
+
+The `metadata` block is ignored by `create-model` and `analyze-sample`;
+it carries only job-control information for whatever scheduler reads
+the YAML.
 
 ## Context file format
 
@@ -113,23 +118,24 @@ Copper oxide likely present on the copper surface.
 - Allow for sample broadening and angle offset.
 ```
 
-The richer the description, the better the drafted `create_model` block.
+The richer the description, the better the drafted create-model fields.
 
 ## Using the output
 
-The generated job YAML's `create_model` block is in the same shape accepted
-by `create-model --config`. You can:
+When `metadata.perform_assembly` is true and create-model fields are
+present, the YAML can be passed directly to either tool:
 
 ```bash
-# Extract the create_model section and pass it to create-model:
-create-model --config job_226642.yaml    # not directly — extract the block first
+# Generate the refl1d model script:
+create-model --config job_226642.yaml
 
-# Or pass the whole YAML to analyze-sample (if it also has states/describe):
+# Or run the full sample pipeline:
 analyze-sample job_226642.yaml
 ```
 
-Alternatively, use the job YAML as a trigger record for a custom pipeline
-that reads `perform_assembly` and conditionally calls `analyze-sample`.
+A scheduler that reads the job YAML should branch on
+`metadata.perform_assembly` (and on the presence of `states`) before
+invoking either CLI.
 
 ## CLI reference
 
@@ -140,9 +146,9 @@ plan-data [OPTIONS] DATA_FILE CONTEXT_FILE
   CONTEXT_FILE — scientist's Markdown context note
 
 Options:
-  -o, --output-dir DIR        Output directory for the job YAML  [required]
+  -o, --output-dir DIR        Output directory for the config YAML  [required]
   -n, --sequence-total N      Expected parts per complete sequence  [default: 3]
-  --no-llm                    Skip LLM assessment step
+  --skill NAME                Skill to load (repeatable)
   -h, --help                  Show this message and exit
 ```
 

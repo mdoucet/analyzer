@@ -1,5 +1,12 @@
 """
-``plan-data`` CLI — generate a job YAML for a newly arriving data file.
+``plan-data`` CLI — generate a config YAML for a newly arriving data file.
+
+The output YAML conforms to the ``create-model --config`` / ``analyze-sample``
+schema (top-level ``describe`` / ``states`` / ``model_name``) plus a
+``metadata`` block that carries job-control information
+(``perform_assembly`` and free-form ``notes``). The ``metadata`` block is
+ignored by ``create-model`` and ``analyze-sample`` so the same file can be
+passed directly to either tool.
 
 The tool delegates the entire decision-making to the LLM:
 
@@ -12,7 +19,7 @@ The tool delegates the entire decision-making to the LLM:
 3. A listing of the data file's sibling files in the same directory is
    passed so the LLM can decide whether the sequence is complete.
 4. The scientist's free-form context file is passed.
-5. The LLM returns a single JSON object that IS the job YAML.
+5. The LLM returns a single JSON object that IS the config YAML.
 
 This module performs no filename parsing, no header regex, and no
 sequence-completeness heuristics. All such logic lives in the prompt and
@@ -101,9 +108,7 @@ def read_header_lines(path: Path, *, max_lines: int = 200) -> str:
 def list_sibling_files(data_file: Path) -> List[str]:
     """Return the names of all regular files in ``data_file``'s directory."""
     try:
-        return sorted(
-            p.name for p in data_file.parent.iterdir() if p.is_file()
-        )
+        return sorted(p.name for p in data_file.parent.iterdir() if p.is_file())
     except OSError:
         return []
 
@@ -116,7 +121,8 @@ def list_sibling_files(data_file: Path) -> List[str]:
 _SYSTEM_INSTRUCTIONS = """\
 You are the data-arrival planner for a neutron reflectometry analysis
 pipeline. A new data file has just arrived. Your job is to produce a
-complete job YAML (returned as JSON) that downstream tools will act on.
+config YAML (returned as JSON) that can be passed *directly* to the
+``create-model --config`` and ``analyze-sample`` CLIs.
 
 You will receive, in the user message:
 
@@ -135,38 +141,48 @@ You MUST:
 2. Decide whether the sequence is complete: every part from 1 to the
    expected total must be represented by a sibling file (use the file
    naming conventions from the data-organization skill).
-3. Set ``perform_assembly: true`` if and only if this data file is the
-   last part of the sequence AND every part is present in the sibling
-   listing.
-4. If — and only if — ``perform_assembly`` is true AND the context file
-   is rich enough to draft a refl1d model (substrate, layer stack, and
-   ambient medium are identifiable), produce a ``create_model`` block
-   that conforms to the create-model skill's states-driven config schema.
-   Use sibling file paths (basenames) as they appear in the listing.
+3. Set ``metadata.perform_assembly: true`` if and only if this data
+   file is the last part of the sequence AND every part is present in
+   the sibling listing.
+4. If — and only if — ``perform_assembly`` is true AND the context
+   file is rich enough to draft a refl1d model (substrate, layer
+   stack, and ambient medium are identifiable), populate the
+   create-model schema fields at the TOP LEVEL of the config:
+   ``describe``, ``states`` (list with ``name`` + ``data`` + optional
+   ``theta_offset`` / ``sample_broadening`` / ``back_reflection`` /
+   ``extra_description``), and ``model_name``. Use sibling file paths
+   (basenames) as they appear in the listing.
 5. Always write a clear summary into ``metadata.notes``.
 
 Reply with a single JSON object and nothing else (no prose, no code
 fences). The JSON must conform to:
 
 {
-  "job": {
-    "perform_analysis": true,
-    "perform_assembly": bool,
-    "create_model": { ... },     // OPTIONAL — include only when warranted
-    "metadata": {"notes": "..."}
+  "config": {
+    // create-model schema fields at the top level — OPTIONAL,
+    // include only when context is rich enough to draft a model:
+    "describe": "...",
+    "states": [ ... ],
+    "model_name": "...",
+    // Always present:
+    "metadata": {
+      "perform_assembly": bool,
+      "notes": "..."
+    }
   },
   "sequence_id": str,            // used to name the output file
   "sequence_number": int,
   "sequence_complete": bool,
-  "create_model_included": bool
+  "create_model_ready": bool     // true iff describe+states populated
 }
 
-The "create_model" block, when included, must follow the create-model
-skill's states-driven schema exactly: top-level "describe", "states"
-(list with "name" + "data" + optional "theta_offset" /
-"sample_broadening" / "back_reflection" / "extra_description"),
-"model_name", and any other documented keys. Do NOT add fields outside
-the schema. Do NOT invent files that are not in the sibling listing.
+Do NOT wrap the create-model fields in a nested ``create_model`` key —
+they must sit at the top level of ``config`` so the file can be passed
+directly to ``create-model --config`` and ``analyze-sample``. Do NOT
+add fields outside the documented create-model schema. Do NOT invent
+files that are not in the sibling listing. The ``metadata`` block is
+ignored by ``create-model`` and ``analyze-sample`` and carries only
+job-control information.
 """
 
 
@@ -194,16 +210,12 @@ def build_user_message(
     parts.append(header_text or "(no header lines found)")
 
     parts.append("\n--- Sibling files in the same directory ---")
-    parts.append(
-        "\n".join(sibling_files) if sibling_files else "(directory is empty)"
-    )
+    parts.append("\n".join(sibling_files) if sibling_files else "(directory is empty)")
 
     parts.append("\n--- Scientist's context file ---")
     parts.append(context_text.strip() or "(empty)")
 
-    parts.append(
-        "\nProduce the JSON object now. Reply with JSON only, no commentary."
-    )
+    parts.append("\nProduce the JSON object now. Reply with JSON only, no commentary.")
     return "\n".join(parts)
 
 
@@ -242,6 +254,7 @@ def call_planner_llm(user_message: str) -> Dict[str, Any]:
     # are not exported in the shell.
     try:
         from analyzer_tools.config_utils import _load_env
+
         _load_env()
     except Exception:
         pass
@@ -314,10 +327,9 @@ def dump_job_yaml(job: Dict[str, Any]) -> str:
         default_flow_style=False,
         allow_unicode=True,
         sort_keys=False,
-    )
+    )  # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -351,7 +363,8 @@ def dump_job_yaml(job: Dict[str, Any]) -> str:
     "skill_overrides",
     multiple=True,
     help="Skill name to include (repeatable). Defaults to: "
-    + ", ".join(_DEFAULT_SKILL_NAMES) + ".",
+    + ", ".join(_DEFAULT_SKILL_NAMES)
+    + ".",
 )
 def main(
     data_file: Path,
@@ -373,8 +386,8 @@ def main(
     whether to draft a create_model block are made by the LLM. Run
     ``check-llm`` first if the LLM endpoint may be unreachable.
     """
-    skill_names = list(skill_overrides) if skill_overrides else list(
-        _DEFAULT_SKILL_NAMES
+    skill_names = (
+        list(skill_overrides) if skill_overrides else list(_DEFAULT_SKILL_NAMES)
     )
     skills = load_skills(skill_names)
     if not skills:
@@ -400,9 +413,7 @@ def main(
     )
 
     click.echo(f"Loaded skills: {', '.join(skills) or '(none)'}")
-    click.echo(
-        f"Data file: {data_file.name}  (sibling files: {len(sibling_files)})"
-    )
+    click.echo(f"Data file: {data_file.name}  (sibling files: {len(sibling_files)})")
 
     try:
         result = call_planner_llm(user_message)
@@ -411,27 +422,33 @@ def main(
     except Exception as exc:  # pragma: no cover - defensive
         raise click.ClickException(f"LLM planner failed: {exc}") from exc
 
-    job = result.get("job") or {}
+    job = result.get("config") or result.get("job") or {}
     if not isinstance(job, dict) or not job:
         raise click.ClickException(
-            f"LLM did not return a 'job' object. Reply was: {result!r}"
+            f"LLM did not return a 'config' object. Reply was: {result!r}"
         )
 
     sequence_id = result.get("sequence_id") or "unknown"
     sequence_number = result.get("sequence_number")
     sequence_complete = result.get("sequence_complete", False)
-    create_model_included = result.get("create_model_included") or (
-        "create_model" in job
-    )
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    perform_assembly = metadata.get("perform_assembly")
+    create_model_ready = result.get("create_model_ready")
+    if create_model_ready is None:
+        create_model_ready = bool(job.get("states")) and bool(job.get("describe"))
 
     click.echo(
         f"sequence_id={sequence_id}  sequence_number={sequence_number}  "
         f"complete={sequence_complete}"
     )
-    click.echo(f"perform_assembly: {job.get('perform_assembly')}")
+    click.echo(f"metadata.perform_assembly: {perform_assembly}")
     click.echo(
-        "create_model section: "
-        + ("included." if create_model_included else "omitted.")
+        "create-model fields: "
+        + (
+            "present (config is ready for create-model / analyze-sample)."
+            if create_model_ready
+            else "omitted."
+        )
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
