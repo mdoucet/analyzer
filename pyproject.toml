@@ -78,6 +78,7 @@ include = ["analyzer_tools*"]
 
 [tool.setuptools.package-data]
 "analyzer_tools" = ["*.ini"]
+"analyzer_tools.skills" = ["*/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

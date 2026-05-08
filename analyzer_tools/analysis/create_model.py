@@ -12,7 +12,7 @@ list::
     create-model --config model-creation.yaml
 
 The config file's directory is the base for relative paths. See the
-``--help`` output below or ``skills/create-model/SKILL.md`` for the
+``--help`` output below or ``analyzer_tools/skills/create-model/SKILL.md`` for the
 full ``states:`` schema.
 """
 

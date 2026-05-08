@@ -33,21 +33,21 @@ graph TD
 
 ## Skills
 
-The `skills/` directory contains detailed SKILL.md files organized by workflow.
+The `analyzer_tools/skills/` directory contains detailed SKILL.md files organized by workflow.
 Consult these when you need to understand how to use a tool, what inputs/outputs to expect, or how to chain tools together:
 
-- `skills/data-organization/` — Data layout, file naming, column formats
-- `skills/models/` — Model files, available models, creating/adjusting models
-- `skills/create-model/` — `create-model` CLI (Mode A JSON, Mode B LLM; cases 1/2/3)
-- `skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
-- `skills/fitting/` — create-model → run-fit → assess-result (+ AuRE evaluation) workflow
-- `skills/partial-assessment/` — Partial data overlap quality checks
-- `skills/theta-offset/` — Theta offset calculation, single and batch mode
-- `skills/time-resolved/` — EIS interval extraction and neutron event reduction
-- `skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
-- `skills/pipeline/` — End-to-end sample pipeline (`analyze-sample`) with reduction-issue gate
-- `skills/plan-data/` — Data arrival planner (`plan-data`): generates job YAMLs when partial files arrive
-- `skills/distributable/` — Single-file summary skill for external users
+- `analyzer_tools/skills/data-organization/` — Data layout, file naming, column formats
+- `analyzer_tools/skills/models/` — Model files, available models, creating/adjusting models
+- `analyzer_tools/skills/create-model/` — `create-model` CLI (Mode A JSON, Mode B LLM; cases 1/2/3)
+- `analyzer_tools/skills/reflectometry-basics/` — Domain primer (Q, R, SLD, chi-squared interpretation)
+- `analyzer_tools/skills/fitting/` — create-model → run-fit → assess-result (+ AuRE evaluation) workflow
+- `analyzer_tools/skills/partial-assessment/` — Partial data overlap quality checks
+- `analyzer_tools/skills/theta-offset/` — Theta offset calculation, single and batch mode
+- `analyzer_tools/skills/time-resolved/` — EIS interval extraction and neutron event reduction
+- `analyzer_tools/skills/data-packaging/` — Iceberg/Parquet packaging of tNR data
+- `analyzer_tools/skills/pipeline/` — End-to-end sample pipeline (`analyze-sample`) with reduction-issue gate
+- `analyzer_tools/skills/plan-data/` — Data arrival planner (`plan-data`): generates job YAMLs when partial files arrive
+- `analyzer_tools/skills/distributable/` — Single-file summary skill for external users
 
 ### Using skills in another repo
 
@@ -56,7 +56,7 @@ copy the distributable skill into their own project:
 
 ```bash
 mkdir -p .github/skills/neutron-reflectometry-analyzer
-cp /path/to/analyzer/skills/distributable/SKILL.md \
+cp /path/to/analyzer/analyzer_tools/skills/distributable/SKILL.md \
    .github/skills/neutron-reflectometry-analyzer/SKILL.md
 ```
 
@@ -70,13 +70,13 @@ When you modify code in `analyzer_tools/` or `models/`, check whether the
 change affects any skill documentation. Specifically:
 
 1. If a **CLI signature changes** (arguments, options, defaults), update the
-   matching skill in `skills/` **and** the distributable summary in
-   `skills/distributable/SKILL.md`.
+   matching skill in `analyzer_tools/skills/` **and** the distributable summary in
+   `analyzer_tools/skills/distributable/SKILL.md`.
 2. If a **new tool is added or removed** in `pyproject.toml` `[project.scripts]`,
-   add or remove it from `skills/distributable/SKILL.md` and list it in the
+   add or remove it from `analyzer_tools/skills/distributable/SKILL.md` and list it in the
    skills directory above.
 3. If **quality thresholds, column formats, or file naming conventions** change,
-   update `skills/data-organization/`, `skills/fitting/`, and the distributable skill.
-4. After any skill edit, always re-check `skills/distributable/SKILL.md` — it is
+   update `analyzer_tools/skills/data-organization/`, `analyzer_tools/skills/fitting/`, and the distributable skill.
+4. After any skill edit, always re-check `analyzer_tools/skills/distributable/SKILL.md` — it is
    the single-file summary that external users rely on and must stay in sync.
 

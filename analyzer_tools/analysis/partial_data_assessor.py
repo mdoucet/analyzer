@@ -195,7 +195,7 @@ def assess_data_set(
 
 
 def _classify_chi2(chi2: float, threshold: float) -> str:
-    """Match the thresholds documented in skills/partial-assessment/SKILL.md."""
+    """Match the thresholds documented in analyzer_tools/skills/partial-assessment/SKILL.md."""
     if chi2 < 1.5:
         return "good"
     if chi2 < threshold:

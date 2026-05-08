@@ -346,8 +346,8 @@ def write_reduction_issues_md(
             "",
             "## References",
             "",
-            "- Theta-offset skill: `skills/theta-offset/SKILL.md`",
-            "- Partial-data skill: `skills/partial-assessment/SKILL.md`",
+            "- Theta-offset skill: `analyzer_tools/skills/theta-offset/SKILL.md`",
+            "- Partial-data skill: `analyzer_tools/skills/partial-assessment/SKILL.md`",
             "",
         ]
     )

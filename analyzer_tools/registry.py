@@ -112,7 +112,7 @@ TOOLS = {
     "analyze_sample": ToolInfo(
         name="Sample Pipeline Orchestrator",
         module="analyzer_tools.pipeline",
-        description="End-to-end pipeline for one sample: partial assessment → reduction-issue gate → create-model → run-fit (with assess-result) → optional AuRE evaluation. Takes a YAML config file in the same shape as `create-model --config` (see skills/create-model). Emits a reduction_batch.yaml manifest when re-reduction is required, but never re-runs reduction automatically.",
+        description="End-to-end pipeline for one sample: partial assessment → reduction-issue gate → create-model → run-fit (with assess-result) → optional AuRE evaluation. Takes a YAML config file in the same shape as `create-model --config` (see analyzer_tools/skills/create-model). Emits a reduction_batch.yaml manifest when re-reduction is required, but never re-runs reduction automatically.",
         usage="analyze-sample <config.yaml> [--dry-run] [--no-reduction-gate] [--skip-aure-eval]",
         examples=[
             "analyze-sample sample_218281.yaml",

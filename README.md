@@ -80,7 +80,7 @@ under `reports/`.
 
 Run `analyzer-tools --list-tools` for the full registry, or
 `analyzer-tools --help-tool <name>` for any single tool. Per-workflow
-documentation lives under [`skills/`](skills/).
+documentation lives under [`analyzer_tools/skills/`](analyzer_tools/skills/).
 
 ## Installation
 
@@ -156,7 +156,7 @@ The recommended way to process many samples is to write one YAML per
 sample and dispatch them with `analyzer-batch`. Each per-sample YAML
 uses the **same shape as `create-model --config`** (the `describe:` +
 `states:` form — see
-[skills/create-model/SKILL.md](skills/create-model/SKILL.md)), and each
+[analyzer_tools/skills/create-model/SKILL.md](analyzer_tools/skills/create-model/SKILL.md)), and each
 `analyze-sample` job runs the full pipeline (partial-data check →
 reduction gate → `create-model` → `run-fit` → `assess-result` →
 optional AuRE evaluation) for that sample.
@@ -242,19 +242,19 @@ that `assess-result` takes the fit-output directory.
 
 | Topic | Where |
 |---|---|
-| End-to-end pipeline (`analyze-sample`) | [skills/pipeline/SKILL.md](skills/pipeline/SKILL.md) |
-| `create-model` reference (Mode A & B) | [skills/create-model/SKILL.md](skills/create-model/SKILL.md) |
-| Fitting workflow (`create-model` → `run-fit` → `assess-result`) | [skills/fitting/SKILL.md](skills/fitting/SKILL.md) |
-| Partial-data overlap checks | [skills/partial-assessment/SKILL.md](skills/partial-assessment/SKILL.md) |
-| Theta-offset calculation | [skills/theta-offset/SKILL.md](skills/theta-offset/SKILL.md) |
-| Data arrival planner (`plan-data`) | [skills/plan-data/SKILL.md](skills/plan-data/SKILL.md) |
-| Time-resolved reduction | [skills/time-resolved/SKILL.md](skills/time-resolved/SKILL.md), [docs/time-resolved-eis.md](docs/time-resolved-eis.md) |
-| Data layout & file formats | [skills/data-organization/SKILL.md](skills/data-organization/SKILL.md) |
-| Reflectometry primer | [skills/reflectometry-basics/SKILL.md](skills/reflectometry-basics/SKILL.md) |
+| End-to-end pipeline (`analyze-sample`) | [analyzer_tools/skills/pipeline/SKILL.md](analyzer_tools/skills/pipeline/SKILL.md) |
+| `create-model` reference (Mode A & B) | [analyzer_tools/skills/create-model/SKILL.md](analyzer_tools/skills/create-model/SKILL.md) |
+| Fitting workflow (`create-model` → `run-fit` → `assess-result`) | [analyzer_tools/skills/fitting/SKILL.md](analyzer_tools/skills/fitting/SKILL.md) |
+| Partial-data overlap checks | [analyzer_tools/skills/partial-assessment/SKILL.md](analyzer_tools/skills/partial-assessment/SKILL.md) |
+| Theta-offset calculation | [analyzer_tools/skills/theta-offset/SKILL.md](analyzer_tools/skills/theta-offset/SKILL.md) |
+| Data arrival planner (`plan-data`) | [analyzer_tools/skills/plan-data/SKILL.md](analyzer_tools/skills/plan-data/SKILL.md) |
+| Time-resolved reduction | [analyzer_tools/skills/time-resolved/SKILL.md](analyzer_tools/skills/time-resolved/SKILL.md), [docs/time-resolved-eis.md](docs/time-resolved-eis.md) |
+| Data layout & file formats | [analyzer_tools/skills/data-organization/SKILL.md](analyzer_tools/skills/data-organization/SKILL.md) |
+| Reflectometry primer | [analyzer_tools/skills/reflectometry-basics/SKILL.md](analyzer_tools/skills/reflectometry-basics/SKILL.md) |
 | Configuration / `.env` cascade | [docs/configuration.md](docs/configuration.md) |
 | Batch manifests (`analyzer-batch`) | [Batch processing](#batch-processing), [manifest.example.yaml](manifest.example.yaml) |
 | Docker (full stack with Mantid) | [docs/docker.md](docs/docker.md) |
-| Single-file skill summary (for downstream repos) | [skills/distributable/SKILL.md](skills/distributable/SKILL.md) |
+| Single-file skill summary (for downstream repos) | [analyzer_tools/skills/distributable/SKILL.md](analyzer_tools/skills/distributable/SKILL.md) |
 
 ## Citation
 

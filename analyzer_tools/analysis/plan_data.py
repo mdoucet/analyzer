@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from importlib import resources
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,28 +60,65 @@ _DEFAULT_SKILL_NAMES = (
 
 
 def _find_skills_dir() -> Optional[Path]:
-    """Locate the analyzer's ``skills/`` directory by walking upward."""
-    here = Path(__file__).resolve()
-    for parent in (here.parent, *here.parents):
-        candidate = parent / "skills"
+    """Locate a writable ``skills/`` directory for development overrides.
+
+    Checked in order:
+
+    1. ``$ANALYZER_SKILLS_DIR`` if set and a directory.
+    2. A ``skills/`` directory next to ``analyzer_tools/`` in a source
+       checkout (walking upward from this file). Lets contributors edit
+       SKILL.md files without reinstalling.
+
+    Returns ``None`` when neither is found; callers should then fall back
+    to packaged resources via :func:`load_skills`.
+    """
+    env_dir = os.environ.get("ANALYZER_SKILLS_DIR")
+    if env_dir:
+        candidate = Path(env_dir)
         if candidate.is_dir():
+            return candidate
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "skills"
+        if candidate.is_dir() and (candidate / "plan-data" / "SKILL.md").is_file():
             return candidate
     return None
 
 
+def _load_packaged_skill(name: str) -> Optional[str]:
+    """Return the SKILL.md text for *name* shipped inside the package."""
+    try:
+        skill_file = resources.files("analyzer_tools.skills") / name / "SKILL.md"
+    except (ModuleNotFoundError, FileNotFoundError):
+        return None
+    try:
+        return skill_file.read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return None
+
+
 def load_skills(skill_names: List[str]) -> Dict[str, str]:
-    """Return ``{skill_name: file_text}`` for every skill found on disk."""
+    """Return ``{skill_name: file_text}`` for every skill that loads.
+
+    Prefers a development override (``ANALYZER_SKILLS_DIR`` or a sibling
+    ``skills/`` dir in a source checkout) so live edits are picked up;
+    falls back per-skill to the copy bundled inside the installed
+    ``analyzer_tools`` package.
+    """
     skills_dir = _find_skills_dir()
-    if skills_dir is None:
-        return {}
     out: Dict[str, str] = {}
     for name in skill_names:
-        path = skills_dir / name / "SKILL.md"
-        if path.is_file():
-            try:
-                out[name] = path.read_text(encoding="utf-8")
-            except OSError:
-                continue
+        if skills_dir is not None:
+            override = skills_dir / name / "SKILL.md"
+            if override.is_file():
+                try:
+                    out[name] = override.read_text(encoding="utf-8")
+                    continue
+                except OSError:
+                    pass
+        packaged = _load_packaged_skill(name)
+        if packaged is not None:
+            out[name] = packaged
     return out
 
 
