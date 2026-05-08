@@ -14,6 +14,8 @@ Requires ``mantid`` and ``lr_reduction``::
 from __future__ import annotations
 
 import csv
+import glob
+import json
 import logging
 import os
 import shutil
@@ -66,6 +68,11 @@ def _read_offset_from_csv(csv_path: str, run_id: str) -> float:
     help="Run ID to look up in the offset CSV (e.g. '226642').",
 )
 @click.option(
+    "--json", "json_file", default=None, type=click.Path(dir_okay=False),
+    help="Write a JSON summary (e.g. results.json) with paths to the partial "
+         "and combined output files.",
+)
+@click.option(
     "-v", "--verbose", is_flag=True,
     help="Enable debug-level logging.",
 )
@@ -76,6 +83,7 @@ def main(
     theta_offset: float | None,
     offset_csv: str | None,
     offset_run: str | None,
+    json_file: str | None,
     verbose: bool,
 ) -> None:
     """Reduce neutron events using a reduction template.
@@ -166,6 +174,28 @@ def main(
         logger.info("Combined reflectivity: %s", output_file)
     else:
         logger.warning("Combined file not found: %s", combined_file)
+
+    if json_file is not None:
+        # Locate the partial file for the run we just reduced.  Files are
+        # named REFL_{first_run}_{id}_{run_number}_partial.txt; match by the
+        # current event file's run number (e.g. REF_L_218282.nxs.h5 → 218282).
+        run_number = "".join(c for c in os.path.basename(event_file).split(".")[0] if c.isdigit())
+        pattern = os.path.join(
+            output_dir, f"REFL_{first_run_of_set}_*_{run_number}_partial.txt",
+        )
+        matches = glob.glob(pattern)
+        partial_file = os.path.abspath(matches[0]) if matches else None
+        if partial_file is None:
+            logger.warning("Partial file not found for pattern: %s", pattern)
+
+        result = {
+            "partial_file": partial_file,
+            "combined_file": os.path.abspath(combined_file)
+                if os.path.exists(combined_file) else None,
+        }
+        with open(json_file, "w") as f:
+            json.dump(result, f, indent=2)
+        logger.info("JSON summary written: %s", os.path.abspath(json_file))
 
     logger.info("Reduction complete — output dir: %s", os.path.abspath(output_dir))
 
