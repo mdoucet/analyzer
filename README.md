@@ -64,6 +64,10 @@ under `reports/`.
   reflectivity overlay (multi-experiment), per-state SLD profiles with 90%
   CL bands. Optionally appends an `aure evaluate` LLM verdict.
 - **`assess-partial`** — Overlap-χ² check on partial reflectivity files.
+- **`plan-data`** — On arrival of a new partial file, emit a config YAML
+  ready for `create-model --config` / `analyze-sample`. Job-control flags
+  (`perform_assembly`, `notes`) live in a `metadata` block that those
+  tools ignore.
 - **`theta-offset`** — Compute or batch-compute incident-angle offsets for
   a Liquids Reflectometer run.
 - **`eis-intervals` / `eis-reduce-events`** — Time-resolved reduction
@@ -243,6 +247,7 @@ that `assess-result` takes the fit-output directory.
 | Fitting workflow (`create-model` → `run-fit` → `assess-result`) | [skills/fitting/SKILL.md](skills/fitting/SKILL.md) |
 | Partial-data overlap checks | [skills/partial-assessment/SKILL.md](skills/partial-assessment/SKILL.md) |
 | Theta-offset calculation | [skills/theta-offset/SKILL.md](skills/theta-offset/SKILL.md) |
+| Data arrival planner (`plan-data`) | [skills/plan-data/SKILL.md](skills/plan-data/SKILL.md) |
 | Time-resolved reduction | [skills/time-resolved/SKILL.md](skills/time-resolved/SKILL.md), [docs/time-resolved-eis.md](docs/time-resolved-eis.md) |
 | Data layout & file formats | [skills/data-organization/SKILL.md](skills/data-organization/SKILL.md) |
 | Reflectometry primer | [skills/reflectometry-basics/SKILL.md](skills/reflectometry-basics/SKILL.md) |
