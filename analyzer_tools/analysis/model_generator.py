@@ -232,9 +232,27 @@ class ModelSpec:
     shared_parameters: List[str] = field(default_factory=list)
 
 
+def _sanitize_layer_name(name: str) -> str:
+    """Coerce *name* into a valid Python identifier.
+
+    Layer names are used both as the SLD ``name=`` keyword and — critically —
+    as Python identifiers in the generated ``sample = A | B(...) | C`` stack
+    expression. Names with spaces or other non-identifier characters (e.g.
+    ``"Copper oxide"``) would produce a SyntaxError at fit time. We replace
+    non-alphanumerics with underscores and prefix a leading digit with one.
+    """
+    raw = str(name).strip()
+    cleaned = "".join(c if c.isalnum() or c == "_" else "_" for c in raw)
+    if not cleaned:
+        return "layer"
+    if not (cleaned[0].isalpha() or cleaned[0] == "_"):
+        cleaned = f"_{cleaned}"
+    return cleaned
+
+
 def _layer_from_dict(d: Dict[str, Any]) -> LayerSpec:
     return LayerSpec(
-        name=str(d["name"]),
+        name=_sanitize_layer_name(d["name"]),
         sld=float(d["sld"]),
         thickness=float(d.get("thickness", 0.0)),
         roughness=float(d.get("roughness", 5.0)),
@@ -273,13 +291,32 @@ def model_spec_from_dict(d: Dict[str, Any]) -> ModelSpec:
         "max": float(intensity.get("max", 1.1)),
     }
 
+    # Layer names in shared_parameters paths must match the sanitized
+    # LayerSpec names, otherwise _validate_shared_paths rejects them. Build a
+    # raw→sanitized prefix map from the original dicts and rewrite each path's
+    # leading segment.
+    name_map: Dict[str, str] = {}
+    for raw_layer in (
+        [d["ambient"], d["substrate"]] + list(d["layers"])
+    ):
+        raw_name = str(raw_layer.get("name", ""))
+        name_map[raw_name] = _sanitize_layer_name(raw_name)
+
+    def _remap_path(path: str) -> str:
+        head, sep, tail = str(path).partition(".")
+        if sep and head in name_map:
+            return f"{name_map[head]}{sep}{tail}"
+        return str(path)
+
+    shared_paths = [_remap_path(p) for p in (d.get("shared_parameters") or [])]
+
     return ModelSpec(
         ambient=ambient,
         substrate=substrate,
         layers=layers,
         intensity=intensity_out,
         back_reflection=bool(d.get("back_reflection", False)),
-        shared_parameters=[str(p) for p in (d.get("shared_parameters") or [])],
+        shared_parameters=shared_paths,
     )
 
 
@@ -587,6 +624,15 @@ _SYSTEM_PROMPT = """\
 You are a neutron reflectometry expert helping to construct refl1d model
 specifications. You MUST reply with a single JSON object conforming to the
 schema provided in the user message — no prose, no code fences, no commentary.
+
+Naming rules (CRITICAL — names are used as Python identifiers):
+- Every "name" field (ambient, substrate, each layer) MUST be a valid Python
+  identifier: ASCII letters, digits, and underscores only, and must not start
+  with a digit. NO spaces, hyphens, parentheses, slashes, or other punctuation.
+- Prefer short element/compound tokens: "Cu", "Ti", "Si", "D2O", "SiO2",
+  "CuO", "TiO2". Use underscores to join words if needed: "Cu_oxide",
+  "Ti_adhesion". Never use "Copper oxide" or "Titanium adhesion layer".
+- Layer names must be unique within a single model.
 
 Domain rules (apply to every layer):
 - Minimum roughness: 5 Å. Typical range: 5–30 Å.

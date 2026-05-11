@@ -965,3 +965,67 @@ def test_build_states_llm_prompt_no_constraint_when_none(tmp_path: Path) -> None
     )
     msgs = mg.build_states_llm_prompt("desc", states)
     assert "REQUIRED LAYER NAMES" not in msgs[-1]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Layer-name sanitization
+# ---------------------------------------------------------------------------
+
+
+def test_layer_names_sanitized_to_python_identifiers(tmp_path: Path) -> None:
+    """LLM names with spaces/punctuation must not break the generated script.
+
+    Regression: the LLM was free to emit names like ``"Copper oxide"``, which
+    rendered as ``Copper oxide(15.0, 8.0)`` in the ``sample = ... | ...``
+    line and produced a SyntaxError at fit time.
+    """
+    spec_dict: Dict[str, Any] = {
+        "ambient": {"name": "D2O", "sld": 6.19},
+        "substrate": {"name": "Silicon", "sld": 2.07},
+        "layers": [
+            {
+                "name": "Copper oxide",
+                "sld": 5.0,
+                "thickness": 15.0,
+                "roughness": 8.0,
+            },
+            {
+                "name": "Copper",
+                "sld": 6.55,
+                "thickness": 500.0,
+                "roughness": 10.0,
+            },
+            {
+                "name": "Titanium adhesion",
+                "sld": -1.95,
+                "thickness": 30.0,
+                "roughness": 8.0,
+            },
+        ],
+        "intensity": {"value": 1.0, "min": 0.95, "max": 1.05},
+        "shared_parameters": [
+            "Copper oxide.thickness",
+            "Titanium adhesion.material.rho",
+        ],
+    }
+    spec = mg.model_spec_from_dict(spec_dict)
+
+    names = [layer.name for layer in spec.layers]
+    assert names == ["Copper_oxide", "Copper", "Titanium_adhesion"]
+    assert spec.shared_parameters == [
+        "Copper_oxide.thickness",
+        "Titanium_adhesion.material.rho",
+    ]
+
+    data_file = tmp_path / "REFL_218281_combined_data_auto.txt"
+    script = mg.render_case1_script(spec, data_file, model_name="sanitize")
+    # Must parse cleanly — no spaces in identifiers on the stack line.
+    ast.parse(script)
+    assert "Copper oxide(" not in script
+    assert "Titanium adhesion(" not in script
+
+
+def test_sanitize_layer_name_leading_digit_and_unicode() -> None:
+    assert mg._sanitize_layer_name("2nd layer") == "_2nd_layer"
+    assert mg._sanitize_layer_name("  Cu/oxide  ") == "Cu_oxide"
+    assert mg._sanitize_layer_name("") == "layer"
