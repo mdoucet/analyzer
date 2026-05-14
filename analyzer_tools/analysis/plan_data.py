@@ -377,17 +377,20 @@ def dump_job_yaml(job: Dict[str, Any]) -> str:
 @click.argument(
     "data_file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
 )
 @click.argument(
     "context_file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
 )
 @click.option(
     "--output-dir",
     "-o",
     type=click.Path(file_okay=False, path_type=Path),
-    required=True,
-    help="Directory in which to write the job YAML file.",
+    default=None,
+    help="Directory in which to write the job YAML file. "
+    "Defaults to paths.output_directory/plan from --state-in.",
 )
 @click.option(
     "--sequence-total",
@@ -405,12 +408,31 @@ def dump_job_yaml(job: Dict[str, Any]) -> str:
     + ", ".join(_DEFAULT_SKILL_NAMES)
     + ".",
 )
+@click.option(
+    "--state-in",
+    "state_in",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Read a v1 workflow-state JSON. Missing DATA_FILE / CONTEXT_FILE / "
+    "--output-dir are filled from reduction.result_file / paths.context_file / "
+    "paths.output_directory (with /plan appended) in the state.",
+)
+@click.option(
+    "--state-out",
+    "state_out",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write a v1 workflow-state JSON containing the planner outcome "
+    "(analysis.model_name, analysis.perform_assembly, analysis.metadata.job_yaml).",
+)
 def main(
-    data_file: Path,
-    context_file: Path,
-    output_dir: Path,
+    data_file: Optional[Path],
+    context_file: Optional[Path],
+    output_dir: Optional[Path],
     sequence_total: int,
     skill_overrides: tuple,
+    state_in: Optional[str],
+    state_out: Optional[str],
 ) -> None:
     """Generate a job YAML for a newly arrived data file (LLM-driven).
 
@@ -425,6 +447,47 @@ def main(
     whether to draft a create_model block are made by the LLM. Run
     ``check-llm`` first if the LLM endpoint may be unreachable.
     """
+    # Resolve missing inputs from --state-in (v1 workflow state).
+    from analyzer_tools.state import (
+        empty_state,
+        load_state,
+        save_state,
+        update_stage,
+        _path,
+    )
+
+    wstate: dict = load_state(state_in) if state_in else empty_state()
+    if state_in:
+        if data_file is None:
+            candidate = (wstate.get("reduction") or {}).get("result_file") or ""
+            if candidate:
+                data_file = Path(candidate)
+        if context_file is None:
+            candidate = _path(wstate, "context_file")
+            if candidate:
+                context_file = Path(candidate)
+        if output_dir is None:
+            base = _path(wstate, "output_directory")
+            if base:
+                output_dir = Path(base) / "plan"
+
+    if data_file is None:
+        raise click.UsageError(
+            "DATA_FILE is required (or supply reduction.result_file via --state-in)."
+        )
+    if context_file is None:
+        raise click.UsageError(
+            "CONTEXT_FILE is required (or supply paths.context_file via --state-in)."
+        )
+    if output_dir is None:
+        raise click.UsageError(
+            "--output-dir is required (or supply paths.output_directory via --state-in)."
+        )
+    if not data_file.is_file():
+        raise click.UsageError(f"DATA_FILE does not exist: {data_file}")
+    if not context_file.is_file():
+        raise click.UsageError(f"CONTEXT_FILE does not exist: {context_file}")
+
     skill_names = (
         list(skill_overrides) if skill_overrides else list(_DEFAULT_SKILL_NAMES)
     )
@@ -494,3 +557,25 @@ def main(
     out_path = output_dir / f"job_{sequence_id}.yaml"
     out_path.write_text(dump_job_yaml(job), encoding="utf-8")
     click.echo(f"Job YAML written to: {out_path}")
+
+    if state_out is not None:
+        model_name = (
+            job.get("model_name")
+            or (job.get("metadata") or {}).get("model_name")
+            or sequence_id
+        )
+        update_stage(
+            wstate,
+            "analysis",
+            model_name=model_name,
+            perform_assembly=bool(perform_assembly) if perform_assembly is not None else None,
+            metadata={
+                "job_yaml": str(out_path.resolve()),
+                "sequence_id": sequence_id,
+                "sequence_number": sequence_number,
+                "sequence_complete": bool(sequence_complete),
+                "create_model_ready": bool(create_model_ready),
+            },
+        )
+        save_state(wstate, state_out)
+        click.echo(f"State written: {Path(state_out).resolve()}")

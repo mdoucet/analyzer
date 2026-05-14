@@ -817,6 +817,7 @@ def run_pipeline(
 @click.argument(
     "config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
 )
 @click.option(
     "--results-dir",
@@ -839,8 +840,25 @@ def run_pipeline(
 @click.option("--skip-fit", is_flag=True, default=False)
 @click.option("--force", is_flag=True, default=False, help="Ignore cached pipeline state.")
 @click.option("--dry-run", is_flag=True, default=False)
+@click.option(
+    "--state-in",
+    "state_in",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Read a v1 workflow-state JSON. Missing CONFIG / --results-dir / "
+    "--reports-dir are filled from analysis.metadata.job_yaml / "
+    "paths.output_directory in the state.",
+)
+@click.option(
+    "--state-out",
+    "state_out",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write a v1 workflow-state JSON with the analysis outcome "
+    "(analysis.success, analysis.problem_json, analysis.model_name).",
+)
 def main(
-    config: Path,
+    config: Optional[Path],
     results_dir: Optional[str],
     reports_dir: Optional[str],
     reduction_gate: bool,
@@ -852,6 +870,8 @@ def main(
     skip_fit: bool,
     force: bool,
     dry_run: bool,
+    state_in: Optional[str],
+    state_out: Optional[str],
 ) -> None:
     """Run the analyzer pipeline for a single sample.
 
@@ -876,6 +896,34 @@ def main(
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     from analyzer_tools.config_utils import get_config
+    from analyzer_tools.state import (
+        empty_state,
+        load_state,
+        record_error,
+        save_state,
+        update_stage,
+        _path,
+    )
+
+    # Resolve missing inputs from --state-in (v1 workflow state).
+    wstate: dict = load_state(state_in) if state_in else empty_state()
+    if state_in:
+        if config is None:
+            job_yaml = (wstate.get("analysis") or {}).get("metadata", {}).get("job_yaml")
+            if job_yaml:
+                config = Path(job_yaml)
+        base = _path(wstate, "output_directory")
+        if results_dir is None and base:
+            results_dir = os.path.join(base, "results")
+        if reports_dir is None and base:
+            reports_dir = os.path.join(base, "reports")
+
+    if config is None:
+        raise click.UsageError(
+            "CONFIG is required (or supply analysis.metadata.job_yaml via --state-in)."
+        )
+    if not config.is_file():
+        raise click.UsageError(f"CONFIG does not exist: {config}")
 
     cfg = get_config()
     results_dir = results_dir or cfg.get_results_dir()
@@ -902,6 +950,29 @@ def main(
     )
 
     click.echo(f"Pipeline status: {state.status}")
+
+    if state_out is not None:
+        success = state.status in ("ok", "dry-run")
+        problem_path = Path(results_dir) / spec.tag / "problem.json"
+        update_stage(
+            wstate,
+            "analysis",
+            success=success,
+            model_name=spec.tag,
+            problem_json=str(problem_path.resolve()) if problem_path.is_file() else None,
+            metadata={
+                "pipeline_status": state.status,
+                "completed_stages": list(state.completed_stages),
+            },
+        )
+        if not success:
+            record_error(
+                wstate, "analysis",
+                f"analyze-sample finished with status={state.status}", None,
+            )
+        save_state(wstate, state_out)
+        click.echo(f"State written: {Path(state_out).resolve()}")
+
     if state.status == "needs-reprocessing":
         click.echo(
             f"See {os.path.join(reports_dir, f'sample_{spec.tag}', 'reduction_issues.md')}",

@@ -43,17 +43,19 @@ def _read_offset_from_csv(csv_path: str, run_id: str) -> float:
 
 @click.command()
 @click.option(
-    "--event-file", required=True, type=click.Path(exists=True),
-    help="Path to neutron event data file (HDF5/NeXus).",
+    "--event-file", default=None, type=click.Path(exists=True),
+    help="Path to neutron event data file (HDF5/NeXus). "
+         "Required unless supplied via --state-in.",
 )
 @click.option(
-    "--template", required=True, type=click.Path(exists=True),
-    help="Path to reduction template file (.xml).",
+    "--template", default=None, type=click.Path(exists=True),
+    help="Path to reduction template file (.xml). "
+         "Required unless supplied via --state-in.",
 )
 @click.option(
-    "--output-dir", default="./reduced_data", show_default=True,
-    type=click.Path(file_okay=False),
-    help="Directory for output files.",
+    "--output-dir", default=None, type=click.Path(file_okay=False),
+    help="Directory for output files. "
+         "Defaults to './reduced_data' or to paths.output_directory from --state-in.",
 )
 @click.option(
     "--theta-offset", default=None, type=float,
@@ -73,17 +75,29 @@ def _read_offset_from_csv(csv_path: str, run_id: str) -> float:
          "and combined output files.",
 )
 @click.option(
+    "--state-in", "state_in", default=None, type=click.Path(exists=True, dir_okay=False),
+    help="Read a v1 workflow-state JSON. Missing --event-file / --template / "
+         "--output-dir options are filled from paths.event_file / "
+         "paths.template_file / paths.output_directory in the state.",
+)
+@click.option(
+    "--state-out", "state_out", default=None, type=click.Path(dir_okay=False),
+    help="Write a v1 workflow-state JSON with the reduction block populated.",
+)
+@click.option(
     "-v", "--verbose", is_flag=True,
     help="Enable debug-level logging.",
 )
 def main(
-    event_file: str,
-    template: str,
-    output_dir: str,
+    event_file: str | None,
+    template: str | None,
+    output_dir: str | None,
     theta_offset: float | None,
     offset_csv: str | None,
     offset_run: str | None,
     json_file: str | None,
+    state_in: str | None,
+    state_out: str | None,
     verbose: bool,
 ) -> None:
     """Reduce neutron events using a reduction template.
@@ -95,6 +109,38 @@ def main(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    # Resolve missing path inputs from --state-in (v1 workflow state).
+    from ..state import empty_state, load_state, save_state, update_stage, _path
+
+    state: dict = load_state(state_in) if state_in else empty_state()
+    if state_in:
+        if event_file is None:
+            event_file = (
+                _path(state, "event_file")
+                or _path(state, "input_file")
+                or None
+            )
+        if template is None:
+            template = _path(state, "template_file") or None
+        if output_dir is None:
+            output_dir = _path(state, "output_directory") or None
+
+    if output_dir is None:
+        output_dir = "./reduced_data"
+
+    if event_file is None:
+        raise click.UsageError(
+            "--event-file is required (or supply paths.event_file via --state-in)."
+        )
+    if template is None:
+        raise click.UsageError(
+            "--template is required (or supply paths.template_file via --state-in)."
+        )
+    if not os.path.isfile(event_file):
+        raise click.UsageError(f"--event-file does not exist: {event_file}")
+    if not os.path.isfile(template):
+        raise click.UsageError(f"--template does not exist: {template}")
 
     # Resolve theta offset
     if offset_csv is not None:
@@ -175,10 +221,11 @@ def main(
     else:
         logger.warning("Combined file not found: %s", combined_file)
 
-    if json_file is not None:
-        # Locate the partial file for the run we just reduced.  Files are
-        # named REFL_{first_run}_{id}_{run_number}_partial.txt; match by the
-        # current event file's run number (e.g. REF_L_218282.nxs.h5 → 218282).
+    # Locate the partial file for the run we just reduced. Files are named
+    # REFL_{first_run}_{id}_{run_number}_partial.txt; match by the current
+    # event file's run number (e.g. REF_L_218282.nxs.h5 -> 218282).
+    partial_file = None
+    if json_file is not None or state_out is not None:
         run_number = "".join(c for c in os.path.basename(event_file).split(".")[0] if c.isdigit())
         pattern = os.path.join(
             output_dir, f"REFL_{first_run_of_set}_*_{run_number}_partial.txt",
@@ -188,16 +235,37 @@ def main(
         if partial_file is None:
             logger.warning("Partial file not found for pattern: %s", pattern)
 
+    combined_file_abs = (
+        os.path.abspath(combined_file) if os.path.exists(combined_file) else None
+    )
+
+    if json_file is not None:
         result = {
             "partial_file": partial_file,
-            "combined_file": os.path.abspath(combined_file)
-                if os.path.exists(combined_file) else None,
+            "combined_file": combined_file_abs,
         }
         with open(json_file, "w") as f:
             json.dump(result, f, indent=2)
         logger.info("JSON summary written: %s", os.path.abspath(json_file))
 
-    logger.info("Reduction complete — output dir: %s", os.path.abspath(output_dir))
+    if state_out is not None:
+        state.setdefault("paths", {})
+        state["paths"]["event_file"] = os.path.abspath(event_file)
+        state["paths"]["raw_data"] = os.path.abspath(event_file)
+        state["paths"]["template_file"] = os.path.abspath(template)
+        state["paths"]["output_directory"] = os.path.abspath(output_dir)
+        update_stage(
+            state,
+            "reduction",
+            success=True,
+            result_file=partial_file,
+            partial_file=partial_file,
+            combined_file=combined_file_abs,
+        )
+        save_state(state, state_out)
+        logger.info("State written: %s", os.path.abspath(state_out))
+
+    logger.info("Reduction complete - output dir: %s", os.path.abspath(output_dir))
 
 
 if __name__ == "__main__":
