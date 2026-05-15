@@ -2,28 +2,16 @@
 
 The full reduction requires mantid + lr_reduction, which aren't always
 available in the test environment. These tests focus on the CLI plumbing
-around the state: argument resolution, error messages, and the JSON shape
-that's written out. We stop short of running mantid by checking the
-behavior up to (and including) the require_mantid() gate.
+around the state: argument resolution and error messages. They stop
+short of running mantid by validating the CLI surface up to (and
+including) the path-existence checks.
 """
 
 from __future__ import annotations
 
-import json
-import os
-
-import pytest
 from click.testing import CliRunner
 
 from analyzer_tools.reduction.reduction import main as simple_reduction
-
-
-def _has_mantid() -> bool:
-    try:
-        import mantid  # noqa: F401
-    except Exception:
-        return False
-    return True
 
 
 def test_no_event_file_no_state_in_errors():
@@ -116,9 +104,3 @@ def test_cli_event_file_overrides_state_in(tmp_path):
     )
     # CLI value wins; we don't get a "does not exist" error for either path.
     assert "does not exist" not in result.output
-
-
-@pytest.mark.skipif(not _has_mantid(), reason="mantid not installed")
-def test_state_out_writes_v1_state(tmp_path):
-    """End-to-end: --state-out produces a v1-shaped JSON with reduction block."""
-    pytest.skip("integration test requires a real event file + template")

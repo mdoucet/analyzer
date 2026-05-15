@@ -96,6 +96,11 @@ def test_state_out_records_success(tmp_path, monkeypatch):
     assert s["analysis"]["model_name"] == "test_model"
     assert s["analysis"]["problem_json"] == str(problem_json.resolve())
     assert s["analysis"]["metadata"]["pipeline_status"] == "ok"
+    # Top-level output dirs surfaced for downstream consumers
+    meta = s["analysis"]["metadata"]
+    assert meta["results_dir"] == str(results_dir.resolve())
+    assert meta["reports_dir"] == str((tmp_path / "reports").resolve())
+    assert "models_dir" in meta  # value comes from config_utils; just assert it's present
     assert s["errors"] == []
 
 

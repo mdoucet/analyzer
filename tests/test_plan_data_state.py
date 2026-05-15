@@ -22,7 +22,7 @@ def test_no_args_errors():
 
 
 def test_state_in_fills_data_and_context(tmp_path, monkeypatch):
-    """state-in supplies reduction.result_file / paths.context_file / paths.output_directory."""
+    """state-in supplies reduction.partial_file / paths.context_file / paths.output_directory."""
     data_file = tmp_path / "REFL_226642_3_226644_partial.txt"
     data_file.write_text("# q i di\n0.01 1.0 0.01\n")
     context_file = tmp_path / "context.md"
@@ -30,7 +30,7 @@ def test_state_in_fills_data_and_context(tmp_path, monkeypatch):
     output_root = tmp_path / "out"
 
     wstate = empty_state()
-    update_stage(wstate, "reduction", result_file=str(data_file))
+    update_stage(wstate, "reduction", partial_file=str(data_file))
     wstate["paths"]["context_file"] = str(context_file)
     wstate["paths"]["output_directory"] = str(output_root)
     state_path = tmp_path / "state.json"
@@ -58,7 +58,7 @@ def test_state_in_fills_data_and_context(tmp_path, monkeypatch):
 
 
 def test_state_in_missing_paths_errors(tmp_path):
-    """state-in without reduction.result_file -> clean UsageError."""
+    """state-in without reduction.partial_file -> clean UsageError."""
     wstate = empty_state()
     wstate["paths"]["output_directory"] = str(tmp_path / "out")
     state_path = tmp_path / "state.json"

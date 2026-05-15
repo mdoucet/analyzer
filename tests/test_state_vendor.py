@@ -55,23 +55,21 @@ def test_vendored_state_roundtrip(tmp_path):
     assert s2["reduction"]["partial_file"] == "/p.txt"
 
 
-def test_vendored_state_migrates_v0(tmp_path):
-    """Old flat-key state files still load."""
-    import json
+def test_vendored_build_state_from_flat():
+    """build_state translates a flat operator-facing dict to nested v1."""
+    from analyzer_tools.state import build_state
 
-    from analyzer_tools.state import load_state
-
-    p = tmp_path / "v0.json"
-    p.write_text(json.dumps({
+    s = build_state({
         "event_file": "/a.h5",
         "template_file": "/t.xml",
         "output_directory": "/out",
-    }))
-    s = load_state(str(p))
+        "llm_model": "gpt-4",
+    })
     assert s["schema_version"] == "1"
     assert s["paths"]["event_file"] == "/a.h5"
     assert s["paths"]["template_file"] == "/t.xml"
     assert s["paths"]["output_directory"] == "/out"
+    assert s["llm"]["model"] == "gpt-4"
 
 
 def test_no_drift_against_ndip_workflows():
