@@ -258,7 +258,6 @@ def main(
             state,
             "reduction",
             success=True,
-            result_file=partial_file,
             partial_file=partial_file,
             combined_file=combined_file_abs,
         )

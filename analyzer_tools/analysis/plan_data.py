@@ -414,7 +414,7 @@ def dump_job_yaml(job: Dict[str, Any]) -> str:
     type=click.Path(exists=True, dir_okay=False),
     default=None,
     help="Read a v1 workflow-state JSON. Missing DATA_FILE / CONTEXT_FILE / "
-    "--output-dir are filled from reduction.result_file / paths.context_file / "
+    "--output-dir are filled from reduction.partial_file / paths.context_file / "
     "paths.output_directory (with /plan appended) in the state.",
 )
 @click.option(
@@ -459,7 +459,7 @@ def main(
     wstate: dict = load_state(state_in) if state_in else empty_state()
     if state_in:
         if data_file is None:
-            candidate = (wstate.get("reduction") or {}).get("result_file") or ""
+            candidate = (wstate.get("reduction") or {}).get("partial_file") or ""
             if candidate:
                 data_file = Path(candidate)
         if context_file is None:
@@ -473,7 +473,7 @@ def main(
 
     if data_file is None:
         raise click.UsageError(
-            "DATA_FILE is required (or supply reduction.result_file via --state-in)."
+            "DATA_FILE is required (or supply reduction.partial_file via --state-in)."
         )
     if context_file is None:
         raise click.UsageError(
