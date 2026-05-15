@@ -18,7 +18,6 @@ import glob
 import json
 import logging
 import os
-import shutil
 import sys
 
 import click
@@ -210,15 +209,10 @@ def main(
         f.write(str(first_run_of_set))
     logger.info("Metadata saved: %s", metadata_file)
 
-    # Copy the combined file to a well-known name for convenience
     combined_file = os.path.join(
         output_dir, f"REFL_{first_run_of_set}_combined_data_auto.txt",
     )
-    output_file = os.path.join(output_dir, "reflectivity.txt")
-    if os.path.exists(combined_file):
-        shutil.copy(combined_file, output_file)
-        logger.info("Combined reflectivity: %s", output_file)
-    else:
+    if not os.path.exists(combined_file):
         logger.warning("Combined file not found: %s", combined_file)
 
     # Locate the partial file for the run we just reduced. Files are named
@@ -260,6 +254,7 @@ def main(
             success=True,
             partial_file=partial_file,
             combined_file=combined_file_abs,
+            metadata={"first_run_of_set": first_run_of_set},
         )
         save_state(state, state_out)
         logger.info("State written: %s", os.path.abspath(state_out))
