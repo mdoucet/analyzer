@@ -928,6 +928,7 @@ def main(
     cfg = get_config()
     results_dir = results_dir or cfg.get_results_dir()
     reports_dir = reports_dir or cfg.get_reports_dir()
+    models_dir = cfg.get_models_dir()
 
     spec = parse_sample_file(config)
 
@@ -963,6 +964,9 @@ def main(
             metadata={
                 "pipeline_status": state.status,
                 "completed_stages": list(state.completed_stages),
+                "results_dir": str(Path(results_dir).resolve()),
+                "reports_dir": str(Path(reports_dir).resolve()),
+                "models_dir": str(Path(models_dir).resolve()),
             },
         )
         if not success:
