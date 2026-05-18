@@ -290,7 +290,7 @@ def test_pipeline_proceeds_when_gate_disabled(tmp_path: Path, monkeypatch) -> No
         script.write_text("# stub\n")
         return script
 
-    def fake_run_fit(script, results_root, reports_root, tag, *, skip_aure_eval):
+    def fake_run_fit(script, results_root, reports_root, tag, **kwargs):
         called["fit"] = True
         (results_root / tag).mkdir(parents=True, exist_ok=True)
         return 0, results_root / tag

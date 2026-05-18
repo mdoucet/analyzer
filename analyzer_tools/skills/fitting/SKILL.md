@@ -80,10 +80,14 @@ Common options:
 | `--samples` | `10000` | DREAM samples |
 | `--burn` | `5000` | DREAM burn-in steps |
 | `--no-assess` | off | Skip the post-fit `assess-result` invocation |
+| `--no-aure-export` | off | Skip writing the `aure serve`-compatible JSON |
+| `--sample-description TEXT` | empty | Free-text description recorded in the AuRE export |
+| `--hypothesis TEXT` | none | Optional hypothesis recorded in the AuRE export |
 
 ```bash
 run-fit models/cu_d2o.py --name cu_d2o_226642
 # → results/cu_d2o_226642/  + reports/report_cu_d2o_226642.md
+# Then: aure serve results/cu_d2o_226642
 ```
 
 ### Output files
@@ -95,6 +99,8 @@ run-fit models/cu_d2o.py --name cu_d2o_226642
 | `problem.json` | FitProblem definition (consumed by `aure evaluate`) |
 | `problem.out` | Overall fit statistics |
 | `*-refl.dat` | Reflectivity data with calculated values per experiment |
+| `run_info.json` | Run metadata for `aure serve` (skip with `--no-aure-export`) |
+| `final_state.json` | Consolidated state (Q/R/dR, fit_results, SLD) for `aure serve` |
 
 ### Data column convention
 

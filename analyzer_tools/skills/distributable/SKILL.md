@@ -71,7 +71,8 @@ the project root itself. LLM secrets live in `~/.config/analyzer/.env`.
 
 ```bash
 run-fit SCRIPT [--results-dir DIR] [--reports-dir DIR] [--name NAME] \
-                [--fit dream] [--samples 10000] [--burn 5000] [--no-assess]
+                [--fit dream] [--samples 10000] [--burn 5000] [--no-assess] \
+                [--no-aure-export] [--sample-description TEXT] [--hypothesis TEXT]
 ```
 
 `SCRIPT` is a complete refl1d Python file (typically produced by
@@ -81,6 +82,12 @@ loads its own data. Output lands in `<results-dir>/<name>/` (default
 automatically calls `assess-result` afterwards. Defaults for `--results-dir`
 and `--reports-dir` come from `$ANALYZER_RESULTS_DIR` and
 `$ANALYZER_REPORTS_DIR`.
+
+After the fit, `run-fit` also writes `run_info.json` and `final_state.json`
+into the same `<results-dir>/<name>/` directory so that
+`aure serve <results-dir>/<name>/` opens the result in the AuRE web viewer.
+Disable with `--no-aure-export`. `analyze-sample` forwards the YAML
+`describe` and `hypothesis` fields to populate these.
 
 #### 2. `assess-result` — Evaluate fit quality
 

@@ -472,6 +472,8 @@ def _run_fit(
     tag: str,
     *,
     skip_aure_eval: bool,
+    sample_description: str = "",
+    hypothesis: Optional[str] = None,
 ) -> Tuple[int, Path]:
     """Subprocess ``run-fit``. Returns (exit_code, output_dir)."""
     if shutil.which("run-fit") is None:
@@ -484,6 +486,10 @@ def _run_fit(
         "--reports-dir", str(reports_root),
         "--name", tag,
     ]
+    if sample_description:
+        cmd.extend(["--sample-description", sample_description])
+    if hypothesis:
+        cmd.extend(["--hypothesis", hypothesis])
     logger.info("Running: %s", " ".join(cmd))
     rc = subprocess.run(cmd, check=False).returncode
     return rc, output_dir
@@ -766,6 +772,8 @@ def run_pipeline(
                 Path(reports_root),
                 tag,
                 skip_aure_eval=skip_aure_eval,
+                sample_description=spec.describe,
+                hypothesis=spec.hypothesis,
             )
         except click.ClickException as exc:
             state.status = "failed"

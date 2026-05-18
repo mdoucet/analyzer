@@ -73,6 +73,24 @@ def _load_problem(script_path: Path):
     default=False,
     help="Skip post-fit assess-result invocation.",
 )
+@click.option(
+    "--no-aure-export",
+    is_flag=True,
+    default=False,
+    help="Skip writing run_info.json / final_state.json for `aure serve`.",
+)
+@click.option(
+    "--sample-description",
+    type=str,
+    default="",
+    help="Free-text sample description recorded in the AuRE export.",
+)
+@click.option(
+    "--hypothesis",
+    type=str,
+    default=None,
+    help="Optional hypothesis recorded in the AuRE export.",
+)
 def main(
     script: Path,
     results_dir: Optional[Path],
@@ -87,6 +105,9 @@ def main(
     alpha: float,
     seed: Optional[int],
     no_assess: bool,
+    no_aure_export: bool,
+    sample_description: str,
+    hypothesis: Optional[str],
 ) -> None:
     """Run a fit on SCRIPT (a complete refl1d-ready Python file).
 
@@ -145,6 +166,22 @@ def main(
             from analyzer_tools.analysis.result_assessor import assess_result
 
         assess_result(str(output_dir), str(reports_dir))
+
+    if not no_aure_export:
+        try:
+            from .aure_export import export_for_aure
+        except ImportError:  # pragma: no cover - script-style import
+            from analyzer_tools.analysis.aure_export import export_for_aure
+
+        exported = export_for_aure(
+            str(output_dir),
+            sample_description=sample_description,
+            hypothesis=hypothesis,
+            fitter=fitter,
+            run_id=tag,
+        )
+        if exported is not None:
+            click.echo(f"AuRE export written to {exported}", err=True)
 
 
 if __name__ == "__main__":

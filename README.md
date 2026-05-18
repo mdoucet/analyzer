@@ -59,7 +59,9 @@ under `reports/`.
   description (LLM/AuRE) or convert an AuRE problem JSON. Multi-state
   co-refinement is supported.
 - **`run-fit`** — Run a bumps DREAM fit on a refl1d script and produce
-  parameter tables, plots, and a Markdown report.
+  parameter tables, plots, and a Markdown report. Also writes
+  `run_info.json` + `final_state.json` so `aure serve <results-dir>/<name>`
+  opens the fit in the AuRE web viewer (skip with `--no-aure-export`).
 - **`assess-result`** — Re-render the report from a fit-output directory:
   reflectivity overlay (multi-experiment), per-state SLD profiles with 90%
   CL bands. Optionally appends an `aure evaluate` LLM verdict.
